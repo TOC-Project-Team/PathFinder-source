@@ -1,0 +1,3 @@
+/usr/bin/cmake -E rm -f CMakeFiles/pathfinder_native.dir/objects.a
+/usr/bin/x86_64-w64-mingw32-ar qc CMakeFiles/pathfinder_native.dir/objects.a @CMakeFiles/pathfinder_native.dir/objects1.rsp
+/usr/bin/x86_64-w64-mingw32-gcc -static-libgcc -static-libstdc++ -O3 -DNDEBUG -static-libgcc -static-libstdc++ -Wl,--strip-all -Wl,--export-all-symbols -shared -o /home/momu/IdeaProjects/PathFinder/target/native/windows/pathfinder_native.dll -Wl,--out-implib,/home/momu/IdeaProjects/PathFinder/target/native/windows/libpathfinder_native.dll.a -Wl,--major-image-version,0,--minor-image-version,0 -Wl,--whole-archive CMakeFiles/pathfinder_native.dir/objects.a -Wl,--no-whole-archive @CMakeFiles/pathfinder_native.dir/linklibs.rsp

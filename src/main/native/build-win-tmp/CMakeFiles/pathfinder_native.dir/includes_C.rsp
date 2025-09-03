@@ -1,0 +1,1 @@
+-I/usr/lib/jvm/java-21-openjdk-amd64/include -I/usr/lib/jvm/java-21-openjdk-amd64/include/linux -I/home/momu/IdeaProjects/PathFinder/src/main/native/include

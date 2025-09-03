@@ -1,0 +1,50 @@
+# 以下为寻路相关配置，代价设置为负数将鼓励算法选择某行为，但是如果真的想鼓励某些行为，更好的方法是降低这些行为的正代价，而不是使用负代价
+
+max_search_radius: 3000  # 搜索半径（值越大，寻路范围越大）
+max_iterations: 4000   # 最大迭代次数（值越大，寻路越准确，内存占用越高）
+particle_spacing: 0.5   # 粒子间距（值越小，粒子越密，建议保持默认值）
+max_particle_distance: 30  # 显示粒子的最大距离（值越大，占用的带宽越多，建议保持默认值）
+particle_size: 1.0      # 粒子大小（值越大，粒子越大）
+path_refresh_ticks: 15  # 路径刷新频率（单位：tick，20tick=1秒，值越小刷新越快，过快会导致CPU占用过高）
+diagonal_cost: 1.5      # 对角线移动的代价
+straight_cost: 1.0      # 直线移动的代价
+right_angle_turn_cost: 0.5  # 直角转弯的代价
+diagonal_turn_cost: 1.0    # 斜角转弯的代价
+break_block_cost: 100.0  # 破坏方块的代价（值越高，越倾向于不破坏方块）
+door_cost: 0.0          # 经过门的代价
+trapdoor_cost: 6.0      # 经过活板门的代价
+jump_cost: 0.0          # 跳跃的代价（值越高，越倾向于不跳跃）
+vertical_cost: 1.0      # 垂直移动的代价（梯子、脚手架）
+scaffolding_cost: 0.0    # 经过脚手架的代价（值越高，越倾向于不使用脚手架）
+fall_cost: 2.0          # 下落移动的代价
+block_jump_cost: 1.0    # 跨方块跳跃的代价
+max_block_jump_distance: 4  # 最大跨方块跳跃距离
+max_safe_fall_height: 4  # 最大安全下落高度
+enable_path_caching: false  # 当设置为false时，每次都会重新计算路径，提高准确性但略微CPU占用。当设置为true时，会尝试复用之前的路径，减少计算但可能导致路径不够实时和准确。
+
+# English version: 
+
+# The following are pathfinding related configurations. Setting costs to negative values will encourage the algorithm to choose certain behaviors, 
+# but if you really want to encourage certain behaviors, a better approach is to reduce the positive costs of these behaviors rather than using negative costs.
+
+#max_search_radius: 3000  # Search radius (larger values mean larger pathfinding range)
+#max_iterations: 4000   # Maximum number of iterations (larger values mean more accurate pathfinding and higher memory usage)
+#particle_spacing: 0.5   # Particle spacing (smaller values mean denser particles, recommended to keep default value)
+#max_particle_distance: 30  # Maximum distance for displaying particles (larger values mean more bandwidth usage, recommended to keep default value)
+#particle_size: 1.0      # Particle size (larger values mean bigger particles)
+#path_refresh_ticks: 15  # Path refresh rate (unit: tick, 20 ticks = 1 second, smaller values mean faster refresh but higher CPU usage)
+#diagonal_cost: 1.5      # Cost of diagonal movement
+#straight_cost: 1.0      # Cost of straight movement
+#right_angle_turn_cost: 0.5  # Cost of right angle turns
+#diagonal_turn_cost: 1.0    # Cost of diagonal turns
+#break_block_cost: 100.0  # Cost of breaking blocks (higher values discourage block breaking)
+#door_cost: 0.0          # Cost of passing through doors
+#trapdoor_cost: 6.0      # Cost of passing through trapdoors
+#jump_cost: 0.0          # Cost of jumping (higher values discourage jumping)
+#vertical_cost: 1.0      # Cost of vertical movement (ladders, scaffolding)
+#scaffolding_cost: 0.0    # Cost of passing through scaffolding (higher values discourage scaffolding use)
+#fall_cost: 2.0          # Cost of falling movement
+#block_jump_cost: 1.0    # Cost of jumping across blocks
+#max_block_jump_distance: 4  # Maximum distance for jumping across blocks
+#max_safe_fall_height: 4  # Maximum safe falling height
+#enable_path_caching: false  # When set to false, paths are recalculated each time, improving accuracy but increasing CPU usage. When set to true, attempts to reuse previous paths, reducing calculations but may result in less real-time and accurate paths.

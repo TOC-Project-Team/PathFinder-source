@@ -1,0 +1,112 @@
+exempt: [
+    "class{^org\/momu\/tOCplugin\/TOCplugin}"
+]
+
+libs: []
+
+stringEncryption {
+  type: STANDARD
+  enabled: true
+  exempt: []
+}
+
+numberEncryption {
+  enabled: true
+  exempt: []
+}
+
+intAnnotationEncryption {
+  enabled: true
+  exempt: []
+}
+
+stringAnnotationEncryption {
+  enabled: true
+  exempt: []
+}
+
+exceptionReturn {
+  enabled: true
+  exempt: []
+}
+
+flowCondition {
+  enabled: true
+  exempt: []
+}
+
+flowException {
+  enabled: true
+  strength: AGGRESSIVE
+  exempt: []
+}
+
+flowRange {
+  enabled: true
+  exempt: []
+}
+
+flowFactoryMaker {
+  enabled: true
+  exempt: []
+}
+
+flowSwitch {
+  enabled: true
+  exempt: []
+}
+
+outliner {
+  enabled: true
+  exempt: []
+}
+
+ahegao {
+  enabled: true
+  exempt: []
+}
+
+native: {
+  enabled: false
+  exempt: []
+}
+
+driver: {
+  enabled: true
+}
+
+reference {
+  enabled: true
+}
+
+fileCrasher: {
+  enabled: true
+}
+
+classRenamer {
+  enabled: true
+  type: CUSTOM
+  prefix: "org/momu/toc/"
+  chars: [
+    "Il",
+    "O0",
+    "oO"
+  ]
+  depth: 3
+}
+
+methodRenamer {
+  enabled: true
+  type: CUSTOM
+  chars: [
+    "Il",
+    "O0",
+    "oO"
+  ]
+  depth: 3
+}
+
+fieldRenamer {
+  enabled: true
+  type: ALPHABETICAL
+}

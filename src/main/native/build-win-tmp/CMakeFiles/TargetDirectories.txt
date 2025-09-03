@@ -1,0 +1,9 @@
+/home/momu/IdeaProjects/PathFinder/src/main/native/build-win-tmp/CMakeFiles/pathfinder_native.dir
+/home/momu/IdeaProjects/PathFinder/src/main/native/build-win-tmp/CMakeFiles/obfuscate.dir
+/home/momu/IdeaProjects/PathFinder/src/main/native/build-win-tmp/CMakeFiles/pack.dir
+/home/momu/IdeaProjects/PathFinder/src/main/native/build-win-tmp/CMakeFiles/edit_cache.dir
+/home/momu/IdeaProjects/PathFinder/src/main/native/build-win-tmp/CMakeFiles/rebuild_cache.dir
+/home/momu/IdeaProjects/PathFinder/src/main/native/build-win-tmp/CMakeFiles/list_install_components.dir
+/home/momu/IdeaProjects/PathFinder/src/main/native/build-win-tmp/CMakeFiles/install.dir
+/home/momu/IdeaProjects/PathFinder/src/main/native/build-win-tmp/CMakeFiles/install/local.dir
+/home/momu/IdeaProjects/PathFinder/src/main/native/build-win-tmp/CMakeFiles/install/strip.dir
