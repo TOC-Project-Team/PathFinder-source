@@ -1,4 +1,4 @@
-package org.momu.tOCplugin;
+package org.momu.tOCplugin.config;
 
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;

@@ -9,6 +9,12 @@ import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.entity.Player;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.momu.tOCplugin.command.MainCommand;
+import org.momu.tOCplugin.config.LanguageManager;
+import org.momu.tOCplugin.internal.NativeLibraryLoader;
+import org.momu.tOCplugin.internal.Waypoint;
+import org.momu.tOCplugin.manager.TaskManager;
+
 import java.io.File;
 import java.nio.file.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -258,6 +264,7 @@ public final class TOCpluginNative extends JavaPlugin implements Listener {
     public void onDisable() {
         // 停止配置文件监视器
         stopConfigFileWatcher();
+        TaskManager.cancelAllTasks();
 
         if (instance != null) {
             try {

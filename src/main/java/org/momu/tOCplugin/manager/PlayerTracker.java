@@ -1,4 +1,4 @@
-package org.momu.tOCplugin;
+package org.momu.tOCplugin.manager;
 
 import org.bukkit.Location;
 import java.util.HashSet;
@@ -6,6 +6,10 @@ import java.util.Set;
 import java.util.UUID;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.momu.tOCplugin.TOCpluginNative;
+import org.momu.tOCplugin.config.LanguageManager;
+import org.momu.tOCplugin.listener.MasterListener;
+
 import java.io.File;
 import java.io.IOException;
 

@@ -8,6 +8,8 @@ import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.metadata.MetadataValue;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.momu.tOCplugin.config.LanguageManager;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;

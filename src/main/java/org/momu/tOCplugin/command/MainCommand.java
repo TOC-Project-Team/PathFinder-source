@@ -1,4 +1,4 @@
-package org.momu.tOCplugin;
+package org.momu.tOCplugin.command;
 
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
@@ -9,6 +9,9 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import org.momu.tOCplugin.listener.MasterListener;
+import org.momu.tOCplugin.TOCpluginNative;
+import org.momu.tOCplugin.config.LanguageManager;
 
 import java.util.ArrayList;
 import java.util.Arrays;

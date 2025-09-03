@@ -3,6 +3,9 @@ package org.momu.tOCplugin;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
+import org.momu.tOCplugin.finder.PathFinding;
+import org.momu.tOCplugin.listener.MasterListener;
+import org.momu.tOCplugin.manager.PlayerTracker;
 
 public final class NavigationService {
 	private static final NavigationService INSTANCE = new NavigationService();
@@ -18,7 +21,7 @@ public final class NavigationService {
 		}
 		// 调用寻路
 		Bukkit.getScheduler().runTask(TOCpluginNative.getInstance(), () -> {
-			MasterListener.startPathfindingPublic(player);
+			PathFinding.startPathfindingPublic(player);
 		});
 	}
 } 

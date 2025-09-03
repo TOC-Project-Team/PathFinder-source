@@ -1,6 +1,7 @@
-package org.momu.tOCplugin;
+package org.momu.tOCplugin.listener;
 
 import org.bukkit.event.Listener;
+import org.momu.tOCplugin.TOCpluginNative;
 
 public class PlayerMoveListener
 implements Listener {

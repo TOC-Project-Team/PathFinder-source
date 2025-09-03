@@ -1,7 +1,9 @@
-package org.momu.tOCplugin;
+package org.momu.tOCplugin.config;
 
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.momu.tOCplugin.Pathfinder;
+import org.momu.tOCplugin.TOCpluginNative;
 
 import java.io.IOException;
 import java.nio.file.*;

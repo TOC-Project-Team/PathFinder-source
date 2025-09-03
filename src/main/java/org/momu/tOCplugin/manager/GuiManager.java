@@ -1,4 +1,4 @@
-package org.momu.tOCplugin;
+package org.momu.tOCplugin.manager;
 
 import net.kyori.adventure.text.TextComponent;
 import org.bukkit.Bukkit;
@@ -22,6 +22,8 @@ import java.util.Map;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import org.momu.tOCplugin.TOCpluginNative;
+import org.momu.tOCplugin.config.LanguageManager;
 
 public class GuiManager {
     // 将常量更新为 Component 类型

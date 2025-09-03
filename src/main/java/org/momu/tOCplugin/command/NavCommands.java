@@ -1,9 +1,14 @@
-package org.momu.tOCplugin;
+package org.momu.tOCplugin.command;
 
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.momu.tOCplugin.NavigationService;
+import org.momu.tOCplugin.manager.PlayerTracker;
+import org.momu.tOCplugin.internal.Waypoint;
+import org.momu.tOCplugin.WaypointService;
+import org.momu.tOCplugin.config.LanguageManager;
 
 import java.util.ArrayList;
 import java.util.List;

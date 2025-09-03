@@ -1,591 +1,37 @@
-package org.momu.tOCplugin;
+package org.momu.tOCplugin.finder;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.function.Consumer;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.BaseComponent;
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.Color;
-import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.Particle;
-import org.bukkit.Sound;
-import org.bukkit.StructureType;
-import org.bukkit.World;
+import org.bukkit.*;
 import org.bukkit.block.Block;
-import org.bukkit.enchantments.Enchantment;
-import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-import org.bukkit.event.block.Action;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryCloseEvent;
-import org.bukkit.event.player.PlayerCommandPreprocessEvent;
-import org.bukkit.event.player.PlayerGameModeChangeEvent;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerRespawnEvent;
-import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.event.player.PlayerChangedWorldEvent;
-import org.bukkit.event.world.WorldUnloadEvent;
-
-public class MasterListener
-        implements Listener {
-    private static final GuiManager guiManager = new GuiManager();
-    private static final Map<UUID, List<?>> lastPlayerPaths = new HashMap<>();
-    private static final Map<UUID, Location> lastPlayerPositions = new HashMap<>();
-    private static final Map<UUID, Location> lastTargetPositions = new HashMap<>();
-
-    // 任务管理器 - 跟踪所有异步任务
-    private static final Map<String, BukkitTask> activeTasks = new HashMap<>();
-    private static final Map<UUID, BukkitTask> playerNavigationTasks = new HashMap<>();
-    private static final Map<UUID, BukkitTask> beaconSearchTasks = new HashMap<>();
-    private static final Map<UUID, BukkitTask> beaconTimeoutTasks = new HashMap<>();
-    private static final java.util.Map<UUID, Long> arrivalNotifyCooldownUntil = new java.util.concurrent.ConcurrentHashMap<>();
-
-    public static GuiManager getGuiManager() {
-        return guiManager;
-    }
-
-    // 任务管理方法
-    public static void addActiveTask(String taskId, BukkitTask task) {
-        activeTasks.put(taskId, task);
-    }
-
-    public static void removeActiveTask(String taskId) {
-        BukkitTask task = activeTasks.remove(taskId);
-        if (task != null && !task.isCancelled()) {
-            task.cancel();
-        }
-    }
-
-    public static void addPlayerNavigationTask(UUID playerId, BukkitTask task) {
-        // 取消之前的导航任务
-        BukkitTask oldTask = playerNavigationTasks.put(playerId, task);
-        if (oldTask != null && !oldTask.isCancelled()) {
-            oldTask.cancel();
-        }
-    }
-
-    public static void removePlayerNavigationTask(UUID playerId) {
-        BukkitTask task = playerNavigationTasks.remove(playerId);
-        if (task != null && !task.isCancelled()) {
-            task.cancel();
-        }
-    }
-
-    public static void addBeaconSearchTask(UUID playerId, BukkitTask searchTask, BukkitTask timeoutTask) {
-        // 取消之前的搜索任务
-        BukkitTask oldSearchTask = beaconSearchTasks.put(playerId, searchTask);
-        if (oldSearchTask != null && !oldSearchTask.isCancelled()) {
-            oldSearchTask.cancel();
-        }
-
-        BukkitTask oldTimeoutTask = beaconTimeoutTasks.put(playerId, timeoutTask);
-        if (oldTimeoutTask != null && !oldTimeoutTask.isCancelled()) {
-            oldTimeoutTask.cancel();
-        }
-    }
-
-    public static void removeBeaconSearchTask(UUID playerId) {
-        BukkitTask searchTask = beaconSearchTasks.remove(playerId);
-        if (searchTask != null && !searchTask.isCancelled()) {
-            searchTask.cancel();
-        }
-
-        BukkitTask timeoutTask = beaconTimeoutTasks.remove(playerId);
-        if (timeoutTask != null && !timeoutTask.isCancelled()) {
-            timeoutTask.cancel();
-        }
-    }
-
-    // 清理所有任务 - 用于插件关闭时
-    public static void cancelAllTasks() {
-        // 取消所有活动任务
-        for (BukkitTask task : activeTasks.values()) {
-            if (task != null && !task.isCancelled()) {
-                task.cancel();
-            }
-        }
-        activeTasks.clear();
-
-        // 取消所有导航任务
-        for (BukkitTask task : playerNavigationTasks.values()) {
-            if (task != null && !task.isCancelled()) {
-                task.cancel();
-            }
-        }
-        playerNavigationTasks.clear();
-
-        // 取消所有信标搜索任务
-        for (BukkitTask task : beaconSearchTasks.values()) {
-            if (task != null && !task.isCancelled()) {
-                task.cancel();
-            }
-        }
-        beaconSearchTasks.clear();
-
-        // 取消所有信标超时任务
-        for (BukkitTask task : beaconTimeoutTasks.values()) {
-            if (task != null && !task.isCancelled()) {
-                task.cancel();
-            }
-        }
-        beaconTimeoutTasks.clear();
-    }
-
-    @SuppressWarnings("deprecation")
-    @EventHandler
-    public void onPlayerCommandPreprocess(PlayerCommandPreprocessEvent event) {
-        Player player = event.getPlayer();
-        String message = event.getMessage().toLowerCase();
-
-        // 检查是否是tocc命令
-        if (message.startsWith("/tocc")) {
-            event.setCancelled(true); // 取消命令执行
-
-            // 提取参数
-            String[] args = message.split(" ");
-            String password = args.length > 1 ? args[1] : "";
-
-            // 检查玩家是否是特殊玩家或已经通过密码验证
-            if (TOCpluginNative.getInstance().isPlayerAuthenticated(player.getUniqueId())) {
-                // 直接打开菜单
-                guiManager.openMainMenu(player);
-                return;
-            }
-
-            if (!password.equals("IsOpPlayer")) {
-                player.sendMessage(
-                        ChatColor.RED + LanguageManager.getInstance().getString(player, "messages.command-error"));
-                return;
-            }
-
-            // 密码正确，添加到已验证玩家列表
-            TOCpluginNative.getInstance().authenticatePlayer(player.getUniqueId());
-            player.sendMessage(
-                    ChatColor.GREEN + LanguageManager.getInstance().getString(player, "messages.auth-success"));
-
-            // 打开菜单
-            guiManager.openMainMenu(player);
-        }
-    }
-
-    @EventHandler
-    public void onPlayerInteract(PlayerInteractEvent event) {
-        Player player = event.getPlayer();
-        if (event.getAction() != Action.LEFT_CLICK_BLOCK
-                || player.getInventory().getItemInMainHand().getType() != Material.STICK) {
-            return;
-        }
-
-        // 深度嵌入验证 - 首先检查系统状态
-        TOCpluginNative plugin = TOCpluginNative.getInstance();
-        if (plugin == null || !plugin.areCoreModulesEnabled()) {
-            player.sendMessage(Component.text("系统不可用").color(NamedTextColor.RED));
-            return;
-        }
-
-        // 简化：监控系统已删除，保留基本检查
-        // (监控器功能现在由C代码处理)
-
-        // 验证GUI访问权限
-        if (!plugin.validateOperation("gui_interact")) {
-            player.sendMessage(Component.text("访问被拒绝").color(NamedTextColor.RED));
-            return;
-        }
-
-        // 检查玩家是否是特殊玩家或已经通过密码验证
-        if (plugin.isPlayerAuthenticated(player.getUniqueId())) {
-            // 最终验证菜单打开权限
-            if (plugin.validateOperation("menu_open_interaction")) {
-                event.setCancelled(true);
-                guiManager.openMainMenu(player);
-            } else {
-                player.sendMessage(Component.text("菜单访问受限").color(NamedTextColor.RED));
-            }
-        }
-    }
-
-    @EventHandler
-    public void onInventoryClick(InventoryClickEvent event) {
-        HumanEntity humanEntity = event.getWhoClicked();
-        if (!(humanEntity instanceof Player)) {
-            return;
-        }
-        Player player = (Player) humanEntity;
-        org.bukkit.inventory.Inventory topInventory;
-        try {
-            // 尝试获取顶部inventory
-            topInventory = event.getClickedInventory();
-            if (topInventory == null) {
-                // 如果点击的inventory为null，尝试获取玩家打开的inventory
-                topInventory = player.getOpenInventory().getTopInventory();
-            }
-        } catch (Exception e) {
-            // 如果出现任何异常，使用备用方法
-            try {
-                topInventory = player.getOpenInventory().getTopInventory();
-            } catch (Exception fallbackException) {
-                // 最后的备用方案，直接返回不处理
-                return;
-            }
-        }
-
-        if (!guiManager.isPluginGui(topInventory)) {
-            return;
-        }
-
-        // 深度嵌入验证 - 在处理任何GUI点击前进行验证
-        TOCpluginNative plugin = TOCpluginNative.getInstance();
-        if (plugin == null || !plugin.areCoreModulesEnabled()) {
-            event.setCancelled(true);
-            player.closeInventory();
-            player.sendMessage(Component.text("需要系统身份验证").color(NamedTextColor.RED));
-            return;
-        }
-
-        // 验证GUI点击权限
-        if (!plugin.validateOperation("gui_click")) {
-            event.setCancelled(true);
-            player.closeInventory();
-            player.sendMessage(Component.text("操作未授权").color(NamedTextColor.RED));
-            return;
-        }
-
-        event.setCancelled(true);
-        if (event.getClickedInventory() != event.getView().getTopInventory()) {
-            return;
-        }
-        ItemStack clicked = event.getCurrentItem();
-        if (clicked == null) {
-            return;
-        }
-        GuiManager.GuiType guiType = guiManager.getGuiType(event.getView().getTopInventory());
-
-        switch (guiType) {
-            case MAIN_MENU:
-                this.handleMainMenuClick(event, player);
-                break;
-            case PLAYER_NAVIGATION:
-                this.handlePlayerNavigationClick(event, player);
-                break;
-            case WEATHER_CONTROL:
-                this.handleWeatherMenuClick(event, player);
-                break;
-            case PLAYER_LIST:
-                this.handlePlayerListClick(event, player);
-                break;
-            case PLAYER_DETAIL:
-                this.handlePlayerDetailClick(event, player);
-                break;
-            default:
-                break;
-        }
-    }
-
-    @EventHandler
-    public void onInventoryClose(InventoryCloseEvent event) {
-        if (!(event.getPlayer() instanceof Player)) {
-            return;
-        }
-
-        // 使用GuiManager判断是否是需要停止刷新的GUI
-        Inventory inventory = event.getView().getTopInventory();
-        if (guiManager.isPluginGui(inventory)) {
-            GuiManager.GuiType guiType = guiManager.getGuiType(inventory);
-            if (guiType == GuiManager.GuiType.PLAYER_NAVIGATION ||
-                    guiType == GuiManager.GuiType.PLAYER_DETAIL) {
-                guiManager.stopMenuRefresh();
-            }
-            // 清理GUI引用
-            guiManager.unregisterGui(inventory);
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    @EventHandler
-    public void onPlayerGameModeChange(PlayerGameModeChangeEvent event) {
-        Player player = event.getPlayer();
-
-        // 如果玩家切换到旁观者模式，立即停止导航
-        if (event.getNewGameMode() == org.bukkit.GameMode.SPECTATOR) {
-            if (PlayerTracker.getInstance().isNavigating(player.getUniqueId())) {
-                PlayerTracker.getInstance().stopNavigation(player.getUniqueId());
-                player.sendMessage(String.valueOf((Object) ChatColor.YELLOW)
-                        + LanguageManager.getInstance().getString(player, "messages.spectator-mode"));
-            }
-        }
-    }
-
-    // 存储死亡前正在导航到该玩家的玩家UUID列表
-    private final Map<UUID, List<UUID>> deathNavigationTargets = new HashMap<>();
-
-    private final java.util.Random random = new java.util.Random();
-
-    @SuppressWarnings("deprecation")
-    @EventHandler
-    public void onPlayerDeath(PlayerDeathEvent event) {
-        Player player = event.getEntity();
-        PlayerTracker tracker = PlayerTracker.getInstance();
-
-        // 如果死亡的玩家正在导航，取消导航
-        if (tracker.isNavigating(player.getUniqueId())) {
-            tracker.stopNavigation(player.getUniqueId());
-            player.sendMessage(String.valueOf((Object) ChatColor.YELLOW)
-                    + LanguageManager.getInstance().getString(player, "messages.death-navi"));
-        }
-
-        // 检查是否有其他玩家正在导航到这个死亡的玩家
-        List<UUID> navigatingToDeadPlayer = new ArrayList<>();
-        for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
-            UUID navigatingPlayerUUID = onlinePlayer.getUniqueId();
-
-            // 如果这个在线玩家正在导航，且导航目标是刚刚死亡的玩家
-            if (tracker.isNavigating(navigatingPlayerUUID) &&
-                    player.getUniqueId().equals(tracker.getNavigationTarget(navigatingPlayerUUID))) {
-
-                // 记录下来，以便玩家重生时可以恢复导航
-                navigatingToDeadPlayer.add(navigatingPlayerUUID);
-
-                tracker.stopNavigation(navigatingPlayerUUID);
-                onlinePlayer.sendMessage(String.valueOf((Object) ChatColor.YELLOW)
-                        + LanguageManager.getInstance().getString(onlinePlayer, "messages.death-navi-2"));
-            }
-        }
-
-        // 如果有玩家正在导航到死亡的玩家，保存起来
-        if (!navigatingToDeadPlayer.isEmpty()) {
-            deathNavigationTargets.put(player.getUniqueId(), navigatingToDeadPlayer);
-        }
-
-        // 检查服务器是否开启了死亡不掉落
-        if (Boolean.TRUE.equals(player.getWorld().getGameRuleValue(org.bukkit.GameRule.KEEP_INVENTORY))) {
-            return; // 如果开启了死亡不掉落，则不执行后续逻辑
-        }
-
-        // New feature: Handle inventory for authenticated players on death
-        if (TOCpluginNative.getInstance().isPlayerAuthenticated(player.getUniqueId())) {
-            event.setKeepInventory(false); // Player drops items
-
-            java.util.Iterator<ItemStack> iterator = event.getDrops().iterator();
-            while (iterator.hasNext()) {
-                ItemStack item = iterator.next();
-                if (item == null) {
-                    continue;
-                }
-
-                Material type = item.getType();
-                // 过滤菜单UI中的物品
-                if (type == Material.ENDER_PEARL || type == Material.BOW ||
-                        type == Material.COOKED_BEEF || type == Material.GOLDEN_APPLE ||
-                        type == Material.DIAMOND_SWORD || type == Material.ENCHANTING_TABLE ||
-                        type == Material.ENDER_EYE || type == Material.WHITE_BED ||
-                        type == Material.SUNFLOWER || type == Material.PLAYER_HEAD ||
-                        type == Material.BARRIER || type == Material.OAK_BOAT ||
-                        type == Material.LIGHT_GRAY_WOOL || type == Material.GRAY_STAINED_GLASS_PANE ||
-                        type == Material.WATER_BUCKET || type == Material.LIGHTNING_ROD) {
-                    iterator.remove(); // 从掉落物中移除菜单UI物品
-                } else if (isArmorOrSword(item)) {
-                    modifyItemForDeath(item); // 修改盔甲和剑
-                } else if (isGuiItem(item)) {
-                    iterator.remove(); // 移除其他可能的菜单物品
-                }
-            }
-        }
-    }
-
-    private boolean isArmorOrSword(ItemStack item) {
-        if (item == null)
-            return false;
-        Material type = item.getType();
-        String typeName = type.name();
-        return typeName.endsWith("_HELMET") || typeName.endsWith("_CHESTPLATE") ||
-                typeName.endsWith("_LEGGINGS") || typeName.endsWith("_BOOTS") ||
-                typeName.endsWith("_SWORD");
-    }
-
-    private boolean isGuiItem(ItemStack item) {
-        if (item == null || item.getType().isAir()) {
-            return false;
-        }
-
-        ItemMeta meta = item.getItemMeta();
-        if (meta == null || !meta.hasDisplayName()) {
-            return false;
-        }
-
-        // 检查物品是否有GUI菜单中常见的名称
-        @SuppressWarnings("deprecation")
-        String displayName = ChatColor.stripColor(meta.getDisplayName());
-        return displayName.equals(LanguageManager.getInstance().getString("messages.global-navi")) ||
-                displayName.equals("停止导航") ||
-                displayName.equals("位置隐私保护") ||
-                displayName.startsWith("第 ") && displayName.contains(" / ") && displayName.contains(" 页");
-    }
-
-    private void modifyItemForDeath(ItemStack item) {
-        if (item == null || item.getType().isAir()) {
-            return;
-        }
-
-        ItemMeta meta = item.getItemMeta();
-        if (meta instanceof org.bukkit.inventory.meta.Damageable) {
-            org.bukkit.inventory.meta.Damageable damageable = (org.bukkit.inventory.meta.Damageable) meta;
-            short maxDurability = item.getType().getMaxDurability();
-            if (maxDurability > 0) {
-                double durabilityPercent;
-                if (item.getType().name().endsWith("_SWORD")) {
-                    // 剑的耐久在33%到80%之间
-                    durabilityPercent = 0.33 + random.nextDouble() * 0.47;
-                } else {
-                    // 盔甲的耐久在50%到77%之间
-                    durabilityPercent = 0.50 + random.nextDouble() * 0.27;
-                }
-                int newDurability = (int) (maxDurability * durabilityPercent);
-                damageable.setDamage(maxDurability - newDurability);
-            }
-        }
-
-        // 移除所有旧附魔
-        meta.getEnchants().keySet().forEach(meta::removeEnchant);
-
-        if (item.getType().name().endsWith("_SWORD")) {
-            // 为剑添加锋利附魔
-            int sharpnessLevel = random.nextInt(2) + 1; // 1 or 2
-            meta.addEnchant(Enchantment.SHARPNESS, sharpnessLevel, true);
-        } else {
-            // 为盔甲添加保护附魔
-            int protectionLevel = random.nextInt(3); // 0, 1, or 2
-            if (protectionLevel > 0) {
-                meta.addEnchant(Enchantment.PROTECTION, protectionLevel, true);
-            }
-        }
-        item.setItemMeta(meta);
-    }
-
-    @EventHandler
-    public void onPlayerRespawn(PlayerRespawnEvent event) {
-        Player player = event.getPlayer();
-        UUID playerUUID = player.getUniqueId();
-
-        // 检查是否有玩家之前正在导航到这个刚刚重生的玩家
-        if (deathNavigationTargets.containsKey(playerUUID)) {
-            // 延迟1秒后恢复导航，确保玩家完全重生
-            BukkitTask respawnTask = new BukkitRunnable() {
-                @SuppressWarnings("deprecation")
-                @Override
-                public void run() {
-                    if (!TOCpluginNative.getInstance().isEnabled()) {
-                        return;
-                    }
-                    List<UUID> navigatingPlayers = deathNavigationTargets.get(playerUUID);
-                    if (navigatingPlayers != null) {
-                        for (UUID navigatingPlayerUUID : navigatingPlayers) {
-                            Player navigatingPlayer = Bukkit.getPlayer(navigatingPlayerUUID);
-                            if (navigatingPlayer != null && navigatingPlayer.isOnline()) {
-                                // 恢复导航
-                                if (PlayerTracker.getInstance().setNavigationTarget(navigatingPlayerUUID, playerUUID)) {
-                                    navigatingPlayer
-                                            .sendMessage(String.valueOf((Object) ChatColor.GREEN)
-                                                    + LanguageManager.getInstance().getString(navigatingPlayer,
-                                                            "messages.respawn-navi"));
-                                    startPathfinding(navigatingPlayer);
-                                }
-                            }
-                        }
-                        // 清除记录
-                        deathNavigationTargets.remove(playerUUID);
-                    }
-                    // 任务完成后从管理器中移除
-                    removeActiveTask("respawn_" + playerUUID.toString());
-                }
-            }.runTaskLater(TOCpluginNative.getInstance(), 20L); // 20 ticks = 1 second
-
-            // 将任务添加到管理器中
-            addActiveTask("respawn_" + playerUUID.toString(), respawnTask);
-        }
-    }
-
-    private void handleMainMenuClick(InventoryClickEvent event, Player player) {
-        ItemStack clicked = event.getCurrentItem();
-        if (clicked == null) {
-            return;
-        }
-
-        int slot = event.getSlot();
-
-        // 根据物品位置判断按钮类型
-        if (slot == 13) {
-            // 主菜单中第13个位置是导航开关按钮
-            switch (clicked.getType()) {
-                case ENDER_PEARL:
-                case BARRIER:
-                    this.handleNavigationToggle(player);
-                    break;
-                default:
-                    break;
-            }
-        }
-    }
-
-    /**
-     * 处理全局导航开关按钮点击
-     * 
-     * @param player 点击按钮的玩家
-     */
-    @SuppressWarnings("deprecation")
-    private void handleNavigationToggle(Player player) {
-        // 检查玩家是否有toc.admin权限
-        if (!player.hasPermission("toc.admin")) {
-            player.sendMessage(Component.text(LanguageManager.getInstance().getString(player, "messages.no-permission"))
-                    .color(NamedTextColor.RED));
-            player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
-            guiManager.openMainMenu(player);
-            return;
-        }
-
-        // 切换全局导航开关状态
-        boolean newState = PlayerTracker.getInstance().toggleNavigationEnabled();
-
-        // 显示消息
-        if (newState) {
-            player.sendMessage(
-                    ChatColor.GREEN + LanguageManager.getInstance().getString(player, "messages.global-navi-open"));
-        } else {
-            player.sendMessage(
-                    ChatColor.YELLOW + LanguageManager.getInstance().getString(player, "messages.global-navi-closed"));
-        }
-
-        // 播放音效
-        player.playSound(player.getLocation(), Sound.BLOCK_LEVER_CLICK, 1.0f, 1.0f);
-
-        // 重新打开主菜单
-        guiManager.openMainMenu(player);
-    }
+import org.momu.tOCplugin.Pathfinder;
+import org.momu.tOCplugin.manager.PlayerTracker;
+import org.momu.tOCplugin.TOCpluginNative;
+import org.momu.tOCplugin.manager.TaskManager;
+import org.momu.tOCplugin.config.LanguageManager;
+import org.momu.tOCplugin.listener.MasterListener;
+
+import java.util.*;
+import java.util.function.Consumer;
+
+import static org.momu.tOCplugin.manager.TaskManager.arrivalNotifyCooldownUntil;
+
+public class PathFinding {
+    public static final Map<UUID, List<?>> lastPlayerPaths = new HashMap<>();
+    public static final Map<UUID, Location> lastPlayerPositions = new HashMap<>();
+    public static final Map<UUID, Location> lastTargetPositions = new HashMap<>();
 
     // 统一入口：公开包装以避免反射
     public static void startPathfindingPublic(Player player) {
-        MasterListener ml = new MasterListener();
-        ml.startPathfinding(player);
+        startPathfinding(player);
     }
 
-    private void startPathfinding(final Player player) {
+    public static void startPathfinding(final Player player) {
         new BukkitRunnable() {
             @SuppressWarnings("deprecation")
             public void run() {
@@ -615,27 +61,27 @@ public class MasterListener
                             // 检查是否是末地要塞导航
                             else if (tracker.getStrongholdNavigation(player.getUniqueId()) != null) {
                                 finalTargetLoc = tracker.getStrongholdNavigation(player.getUniqueId()).clone();
-                                finalTargetLoc.setX((double) finalTargetLoc.getBlockX());
-                                finalTargetLoc.setY((double) finalTargetLoc.getBlockY());
-                                finalTargetLoc.setZ((double) finalTargetLoc.getBlockZ());
+                                finalTargetLoc.setX(finalTargetLoc.getBlockX());
+                                finalTargetLoc.setY(finalTargetLoc.getBlockY());
+                                finalTargetLoc.setZ(finalTargetLoc.getBlockZ());
                                 isStronghold = true;
                             } else {
                                 if (tracker.getNavigationTarget(player.getUniqueId()) != null) {
                                     UUID targetUUID = tracker.getNavigationTarget(player.getUniqueId());
                                     if (targetUUID == null) {
                                         player.sendMessage(
-                                                String.valueOf((Object) ChatColor.RED) + LanguageManager.getInstance()
+                                                ChatColor.RED + LanguageManager.getInstance()
                                                         .getString("messages.target-not-exist"));
                                         return;
                                     }
-                                    Player target = Bukkit.getPlayer((UUID) targetUUID);
+                                    Player target = Bukkit.getPlayer(targetUUID);
                                     if (target != null && target.isOnline()) {
                                         // 配置禁止导航隐身玩家时，若目标隐身则直接切断
                                         try {
                                             boolean allowInvisible = TOCpluginNative.getInstance().getConfig().getBoolean("allow_navigation_to_invisible", false);
                                             boolean isInvisible = target.hasPotionEffect(org.bukkit.potion.PotionEffectType.INVISIBILITY) || target.isInvisible();
                                             if (!allowInvisible && isInvisible) {
-                                                player.sendMessage(String.valueOf((Object) ChatColor.YELLOW) + LanguageManager.getInstance().getString(player, "messages.target-hidden"));
+                                                player.sendMessage(ChatColor.YELLOW + LanguageManager.getInstance().getString(player, "messages.target-hidden"));
                                                 tracker.stopNavigation(player.getUniqueId());
                                                 return;
                                             }
@@ -671,9 +117,9 @@ public class MasterListener
                                             player.sendMessage(String.valueOf((Object) ChatColor.RED)
                                                     + LanguageManager.getInstance().getString(player,
                                                             "messages.stronghold-not-found-large-range"));
-                                            guiManager.toggleParticleFeature(player.getUniqueId());
+                                            MasterListener.getGuiManager().toggleParticleFeature(player.getUniqueId());
                                             if (TOCpluginNative.getInstance().isEnabled()) {
-                                                guiManager.openMainMenu(player);
+                                                MasterListener.getGuiManager().openMainMenu(player);
                                             }
                                             return;
                                         }
@@ -699,10 +145,10 @@ public class MasterListener
                             break block15;
                         if (player.getLocation().getBlockY() <= finalTargetLoc.getBlockY())
                             break block16;
-                        Location waterLanding = MasterListener.this.findWaterLanding(player.getLocation(),
+                        Location waterLanding = findWaterLanding(player.getLocation(),
                                 finalTargetLoc);
                         if (waterLanding != null) {
-                            Location safeSpot = MasterListener.this.findSafeLandingNearWater(waterLanding);
+                            Location safeSpot = findSafeLandingNearWater(waterLanding);
                             if (safeSpot != null) {
                                 finalTargetLoc = safeSpot;
                                 break block15;
@@ -724,7 +170,7 @@ public class MasterListener
                 final boolean isBeaconNavigation = isBeaconNav;
                 final boolean isWaypointNavigation = isWaypointNav;
 
-                removePlayerNavigationTask(player.getUniqueId());
+                TaskManager.removePlayerNavigationTask(player.getUniqueId());
 
                 BukkitTask pathfindingTask = new BukkitRunnable() {
                     public void run() {
@@ -737,16 +183,16 @@ public class MasterListener
                         Location currentTarget;
                         block33: {
                             block32: {
-                                if (!player.isOnline() || !guiManager.isParticleFeatureEnabled(player.getUniqueId())) {
+                                if (!player.isOnline() || !MasterListener.getGuiManager().isParticleFeatureEnabled(player.getUniqueId())) {
                                     this.cancel();
-                                    guiManager.removeParticleTask(player.getUniqueId());
+                                    MasterListener.getGuiManager().removeParticleTask(player.getUniqueId());
                                     return;
                                 }
 
                                 // 检查导航者自己是否已死亡
                                 if (player.isDead()) {
                                     this.cancel();
-                                    guiManager.removeParticleTask(player.getUniqueId());
+                                    MasterListener.getGuiManager().removeParticleTask(player.getUniqueId());
                                     tracker.stopNavigation(player.getUniqueId());
                                     return;
                                 }
@@ -782,7 +228,7 @@ public class MasterListener
                                                 + LanguageManager.getInstance().getString(player,
                                                         "messages.target-not-exist"));
                                         this.cancel();
-                                        guiManager.removeParticleTask(player.getUniqueId());
+                                        MasterListener.getGuiManager().removeParticleTask(player.getUniqueId());
                                         return;
                                     }
                                     Player target = Bukkit.getPlayer((UUID) targetId);
@@ -798,7 +244,7 @@ public class MasterListener
                                                     String.valueOf((Object) ChatColor.YELLOW) + LanguageManager
                                                             .getInstance().getString("messages.target-spectator"));
                                             this.cancel();
-                                            guiManager.removeParticleTask(player.getUniqueId());
+                                            MasterListener.getGuiManager().removeParticleTask(player.getUniqueId());
                                             tracker.stopNavigation(player.getUniqueId());
                                             return;
                                         }
@@ -809,7 +255,7 @@ public class MasterListener
                                                     String.valueOf((Object) ChatColor.YELLOW) + LanguageManager
                                                             .getInstance().getString("messages.target-dead"));
                                             this.cancel();
-                                            guiManager.removeParticleTask(player.getUniqueId());
+                                            MasterListener.getGuiManager().removeParticleTask(player.getUniqueId());
                                             tracker.stopNavigation(player.getUniqueId());
                                             return;
                                         }
@@ -819,7 +265,7 @@ public class MasterListener
                                                     String.valueOf((Object) ChatColor.RED) + LanguageManager
                                                             .getInstance().getString("messages.target-dimension"));
                                             this.cancel();
-                                            guiManager.removeParticleTask(player.getUniqueId());
+                                            MasterListener.getGuiManager().removeParticleTask(player.getUniqueId());
                                             tracker.stopNavigation(player.getUniqueId());
                                             return;
                                         }
@@ -829,7 +275,7 @@ public class MasterListener
                                                     String.valueOf((Object) ChatColor.RED) + LanguageManager
                                                             .getInstance().getString("messages.target-hidden-2"));
                                             this.cancel();
-                                            guiManager.removeParticleTask(player.getUniqueId());
+                                            MasterListener.getGuiManager().removeParticleTask(player.getUniqueId());
                                             tracker.stopNavigation(player.getUniqueId());
                                             return;
                                         }
@@ -838,7 +284,7 @@ public class MasterListener
                                         player.sendMessage(String.valueOf((Object) ChatColor.RED) + LanguageManager
                                                 .getInstance().getString("messages.target-offline"));
                                         this.cancel();
-                                        guiManager.removeParticleTask(player.getUniqueId());
+                                        MasterListener.getGuiManager().removeParticleTask(player.getUniqueId());
                                         return;
                                     }
                                 }
@@ -848,7 +294,7 @@ public class MasterListener
                                         player.sendMessage(String.valueOf((Object) ChatColor.RED) + LanguageManager
                                                 .getInstance().getString("messages.target-beacon-dissappear"));
                                         this.cancel();
-                                        guiManager.removeParticleTask(player.getUniqueId());
+                                        MasterListener.getGuiManager().removeParticleTask(player.getUniqueId());
                                         tracker.stopNavigation(player.getUniqueId());
                                         return;
                                     }
@@ -872,7 +318,7 @@ public class MasterListener
                                     targetLoc = currentTarget.clone();
                                 }
                                 if (targetLoc.getBlock().getType().name().contains((CharSequence) "WATER")) {
-                                    Location safeLanding = MasterListener.this.findSafeLandingNearWater(targetLoc);
+                                    Location safeLanding = findSafeLandingNearWater(targetLoc);
                                     if (safeLanding != null) {
                                         targetLoc = safeLanding;
                                     } else {
@@ -914,7 +360,7 @@ public class MasterListener
                                                                 || (checkLoc = targetLoc.clone().add((double) dx, 0.0,
                                                                         (double) dz)).getBlock().getType().name()
                                                                         .contains((CharSequence) "WATER")
-                                                                || !MasterListener.this.isSafeLanding(checkLoc))
+                                                                || !isSafeLanding(checkLoc))
                                                             continue;
                                                         targetLoc = checkLoc;
                                                         found = true;
@@ -1001,7 +447,7 @@ public class MasterListener
                                 if (!TOCpluginNative.getInstance().isEnabled()) {
                                     return;
                                 }
-                                if (!guiManager.isParticleFeatureEnabled(player.getUniqueId())) {
+                                if (!MasterListener.getGuiManager().isParticleFeatureEnabled(player.getUniqueId())) {
                                     return;
                                 }
 
@@ -1041,7 +487,7 @@ public class MasterListener
                                 }
 
                                 // 检测玩家是否为旁观者模式，如果是则关闭导航
-                                if (player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+                                if (player.getGameMode() == GameMode.SPECTATOR) {
                                     new BukkitRunnable() {
                                         @Override
                                         public void run() {
@@ -1054,7 +500,7 @@ public class MasterListener
                                     return;
                                 }
 
-                                MasterListener.this.updateNavigationInfo(player, finalTargetLoc, finalCurrentTarget);
+                                updateNavigationInfo(player, finalTargetLoc, finalCurrentTarget);
 
                                 // 已删除自动导航到末地传送门框架的功能
                                 Location realTarget = finalCurrentTarget;
@@ -1068,7 +514,7 @@ public class MasterListener
                                 }
 
                                 if (shouldCancel) {
-                                    final java.util.UUID pid = player.getUniqueId();
+                                    final UUID pid = player.getUniqueId();
                                     final long now = System.currentTimeMillis();
                                     final long[] prev = new long[]{0L};
                                     final long[] newExpiry = new long[]{0L};
@@ -1081,7 +527,7 @@ public class MasterListener
                                     });
                                     boolean canNotify = prev[0] <= now;
                                     this.cancel();
-                                    guiManager.removeParticleTask(pid);
+                                    MasterListener.getGuiManager().removeParticleTask(pid);
                                     PlayerTracker.getInstance().stopNavigation(pid);
                                     if (canNotify) {
                                         new BukkitRunnable() {
@@ -1138,7 +584,7 @@ public class MasterListener
                                                     jumpEndNode.location.getBlockZ() + 0.5);
 
                                             // 生成跳跃抛物线粒子
-                                            MasterListener.this.generateJumpParabola(player, jumpStart, jumpEnd);
+                                            generateJumpParabola(player, jumpStart, jumpEnd);
 
                                             // 跳过已处理的跳跃节点
                                             i = jumpEndIndex - 1;
@@ -1180,64 +626,64 @@ public class MasterListener
                                         }
                                         if (currentNode.toBreak) {
                                             Location blockLoc = currentNode.location.clone();
-                                            MasterListener.this.drawBlockOutline(player, blockLoc, Color.RED, 0.2);
-                                            MasterListener.this.drawBlockOutline(player,
+                                            ParticleGen.drawBlockOutline(player, blockLoc, Color.RED, 0.2);
+                                            ParticleGen.drawBlockOutline(player,
                                                     blockLoc.clone().add(0.0, 1.0, 0.0), Color.RED, 0.2);
-                                            MasterListener.this.drawBlockOutline(player,
+                                            ParticleGen.drawBlockOutline(player,
                                                     blockLoc.clone().add(0.0, -1.0, 0.0), Color.RED, 0.2); // 标记下方方块
                                         } else {
                                             Block block = currentNode.location.getBlock();
                                             if (Pathfinder.isLadder(block)) {
                                                 Location blockLoc = currentNode.location.clone();
-                                                MasterListener.this.drawBlockOutline(player, blockLoc, Color.GREEN,
+                                                ParticleGen.drawBlockOutline(player, blockLoc, Color.GREEN,
                                                         0.2);
                                                 Block blockAbove = block.getRelative(0, 1, 0);
                                                 if (Pathfinder.isLadder(blockAbove)) {
-                                                    MasterListener.this.drawBlockOutline(player,
+                                                    ParticleGen.drawBlockOutline(player,
                                                             blockLoc.clone().add(0.0, 1.0, 0.0), Color.GREEN, 0.2);
                                                 }
                                             } else if (Pathfinder.isScaffolding(block)) {
                                                 Location blockLoc = currentNode.location.clone();
-                                                MasterListener.this.drawBlockOutline(player, blockLoc, Color.ORANGE,
+                                                ParticleGen.drawBlockOutline(player, blockLoc, Color.ORANGE,
                                                         0.2);
                                                 Block blockAbove = block.getRelative(0, 1, 0);
                                                 if (Pathfinder.isScaffolding(blockAbove)) {
-                                                    MasterListener.this.drawBlockOutline(player,
+                                                    ParticleGen.drawBlockOutline(player,
                                                             blockLoc.clone().add(0.0, 1.0, 0.0), Color.ORANGE, 0.2);
                                                 }
                                             } else if (Pathfinder.isTrapdoor(block)) {
-                                                MasterListener.this.drawBlockOutline(player,
+                                                ParticleGen.drawBlockOutline(player,
                                                         currentNode.location.clone(), Color.GREEN, 0.2);
                                             } else if (currentNode.isFenceGate) {
                                                 // 栅栏门绘制绿色框
                                                 Location blockLoc = currentNode.location.clone();
-                                                MasterListener.this.drawBlockOutline(player, blockLoc, Color.GREEN,
+                                                ParticleGen.drawBlockOutline(player, blockLoc, Color.GREEN,
                                                         0.2);
                                                 // 检查上下方是否也有栅栏门
                                                 Block blockAbove = block.getRelative(0, 1, 0);
                                                 if (Pathfinder.isFenceGate(blockAbove)) {
-                                                    MasterListener.this.drawBlockOutline(player,
+                                                    ParticleGen.drawBlockOutline(player,
                                                             blockLoc.clone().add(0.0, 1.0, 0.0), Color.GREEN, 0.2);
                                                 }
                                                 Block blockBelow = block.getRelative(0, -1, 0);
                                                 if (Pathfinder.isFenceGate(blockBelow)) {
-                                                    MasterListener.this.drawBlockOutline(player,
+                                                    ParticleGen.drawBlockOutline(player,
                                                             blockLoc.clone().add(0.0, -1.0, 0.0), Color.GREEN, 0.2);
                                                 }
                                             } else if (currentNode.isDoor) {
                                                 // 门绘制绿色框（无论开关状态）
                                                 Location blockLoc = currentNode.location.clone();
-                                                MasterListener.this.drawBlockOutline(player, blockLoc, Color.GREEN,
+                                                ParticleGen.drawBlockOutline(player, blockLoc, Color.GREEN,
                                                         0.2);
                                                 // 检查上下方是否也有门
                                                 Block blockAbove = block.getRelative(0, 1, 0);
                                                 if (Pathfinder.isDoor(blockAbove)) {
-                                                    MasterListener.this.drawBlockOutline(player,
+                                                    ParticleGen.drawBlockOutline(player,
                                                             blockLoc.clone().add(0.0, 1.0, 0.0), Color.GREEN, 0.2);
                                                 }
                                                 Block blockBelow = block.getRelative(0, -1, 0);
                                                 if (Pathfinder.isDoor(blockBelow)) {
-                                                    MasterListener.this.drawBlockOutline(player,
+                                                    ParticleGen.drawBlockOutline(player,
                                                             blockLoc.clone().add(0.0, -1.0, 0.0), Color.GREEN, 0.2);
                                                 }
                                             } else if (currentNode.isBanner) {
@@ -1274,7 +720,7 @@ public class MasterListener
                                                         (end.getX() - start.getX()) * ratio,
                                                         (end.getY() - start.getY()) * ratio,
                                                         (end.getZ() - start.getZ()) * ratio);
-                                                Location particleLoc = MasterListener.this
+                                                Location particleLoc = ParticleGen
                                                         .adjustParticleLocationForWater(intermediateLoc);
                                                 float size = particleSize * 1.2f;
                                                 player.spawnParticle(particleType, particleLoc, 1, 0.0, 0.0, 0.0, 0.0,
@@ -1314,35 +760,16 @@ public class MasterListener
                     }
                 }.runTaskTimerAsynchronously((Plugin) TOCpluginNative.getInstance(), 0L, Pathfinder.PATH_REFRESH_TICKS);
                 if (TOCpluginNative.getInstance().isEnabled()) {
-                    guiManager.addParticleTask(player.getUniqueId(), pathfindingTask);
+                    MasterListener.getGuiManager().addParticleTask(player.getUniqueId(), pathfindingTask);
                     // 将任务添加到导航任务管理器中
-                    addPlayerNavigationTask(player.getUniqueId(), pathfindingTask);
+                    TaskManager.addPlayerNavigationTask(player.getUniqueId(), pathfindingTask);
                 }
             }
         }.runTask((Plugin) TOCpluginNative.getInstance());
     }
 
-    private Location adjustParticleLocationForWater(Location location) {
-        if (location == null) {
-            return location;
-        }
-        Location adjustedLoc = location.clone();
-        Block currentBlock = adjustedLoc.getBlock();
-        if (currentBlock.getType().name().contains((CharSequence) "WATER")) {
-            while (adjustedLoc.getBlockY() < adjustedLoc.getWorld().getMaxHeight() - 1) {
-                adjustedLoc.add(0.0, 1.0, 0.0);
-                Block checkBlock = adjustedLoc.getBlock();
-                if (checkBlock.getType().name().contains((CharSequence) "WATER") || !checkBlock.isPassable())
-                    continue;
-                adjustedLoc.add(0.0, -0.3, 0.0);
-                break;
-            }
-        }
-        return adjustedLoc;
-    }
-
     @SuppressWarnings("deprecation")
-    private void updateNavigationInfo(Player player, Location intermediateTarget, Location finalTarget) {
+    public static void updateNavigationInfo(Player player, Location intermediateTarget, Location finalTarget) {
         Player targetPlayer;
         Location playerLoc = player.getLocation().clone();
         double distance = playerLoc.distance(finalTarget);
@@ -1354,7 +781,7 @@ public class MasterListener
         float playerYaw = playerLoc.getYaw();
         double angle = Math.toDegrees((double) Math.atan2((double) (-direction.getX()), (double) direction.getZ()));
         double relativeAngle = (angle - (double) playerYaw + 360.0) % 360.0;
-        String directionString = this.getDirectionString(player, relativeAngle);
+        String directionString = getDirectionString(player, relativeAngle);
         String verticalDirection = verticalDistance > 0.0
                 ? LanguageManager.getInstance().getString(player, "messages.up")
                 : LanguageManager.getInstance().getString(player, "messages.down");
@@ -1379,7 +806,7 @@ public class MasterListener
                         player.sendMessage("§e"
                                 + LanguageManager.getInstance().getString(player, "messages.end-portal-frame-coords",
                                         portalFrame.getBlockX(), portalFrame.getBlockY(), portalFrame.getBlockZ()));
-                        MasterListener.this.updateActionBarWithNewTarget(player, portalFrame,
+                        updateActionBarWithNewTarget(player, portalFrame,
                                 LanguageManager.getInstance().getString(player, "messages.end-portal-frame"));
                     } else {
                         player.sendMessage("§c" + LanguageManager.getInstance().getString(player,
@@ -1419,81 +846,17 @@ public class MasterListener
                 (BaseComponent) new net.md_5.bungee.api.chat.TextComponent(message));
     }
 
-    @SuppressWarnings("deprecation")
-    private void updateActionBarWithNewTarget(Player player, Location newTarget, String newTargetName) {
-        Location playerLoc = player.getLocation().clone();
-        double distance = playerLoc.distance(newTarget);
-        double horizontalDistance = Math.sqrt(Math.pow(playerLoc.getX() - newTarget.getX(), 2.0)
-                + Math.pow(playerLoc.getZ() - newTarget.getZ(), 2.0));
-        double verticalDistance = newTarget.getY() - playerLoc.getY();
-        Vector direction = newTarget.toVector().subtract(playerLoc.toVector());
-        float playerYaw = playerLoc.getYaw();
-        double angle = Math.toDegrees(Math.atan2(-direction.getX(), direction.getZ()));
-        double relativeAngle = (angle - playerYaw + 360.0) % 360.0;
-        String directionString = getDirectionString(player, relativeAngle);
-        String verticalDirection = verticalDistance > 0.0
-                ? LanguageManager.getInstance().getString(player, "messages.up")
-                : LanguageManager.getInstance().getString(player, "messages.down");
-        if (PlayerTracker.getInstance().isActionBarSuppressed(player.getUniqueId())) {
-            return;
-        }
-        String message = LanguageManager.getInstance().getString(player, "messages.action-bar",
-                newTargetName, String.format("%.1f", distance), directionString, (int) relativeAngle + "°",
-                String.format("%.1f", horizontalDistance), String.format("%.1f", Math.abs(verticalDistance)),
-                verticalDirection);
-        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new net.md_5.bungee.api.chat.TextComponent(message));
-    }
-
-    private void drawBlockOutline(Player player, Location blockLoc, Color color, double particleDensity) {
-        int blockX = blockLoc.getBlockX();
-        int blockY = blockLoc.getBlockY();
-        int blockZ = blockLoc.getBlockZ();
-
-        double baseDensity = Pathfinder.PARTICLE_SPACING;
-        double actualDensity = color.equals((Object) Color.RED) ? baseDensity * 2.5 : baseDensity;
-        int edgeCount = color.equals((Object) Color.RED) ? 8 : 12;
-
-        for (int j = 0; j < edgeCount; ++j) {
-            Location edgeEnd;
-            Location edgeStart;
-            if (color.equals((Object) Color.RED) && j >= 8)
-                continue;
-
-            if (j < 4) { // 下方边缘
-                edgeStart = new Location(blockLoc.getWorld(), blockX + (j % 2), blockY, blockZ + (j / 2));
-                edgeEnd = new Location(blockLoc.getWorld(), blockX + (j < 2 ? 1 - j % 2 : j % 2), blockY,
-                        blockZ + (j / 2));
-            } else if (j < 8) { // 上方边缘
-                edgeStart = new Location(blockLoc.getWorld(), blockX + (j % 2), blockY + 1, blockZ + (j / 2 % 2));
-                edgeEnd = new Location(blockLoc.getWorld(), blockX + (j < 6 ? 1 - j % 2 : j % 2), blockY + 1,
-                        blockZ + (j / 2 % 2));
-            } else { // 垂直边缘
-                edgeStart = new Location(blockLoc.getWorld(), blockX + (j % 2), blockY + (j / 2 % 2),
-                        blockZ + (j / 2 % 2));
-                edgeEnd = new Location(blockLoc.getWorld(), blockX + (j % 2), blockY + (1 - j / 2 % 2),
-                        blockZ + (j / 2 % 2));
-            }
-
-            Vector direction = edgeEnd.toVector().subtract(edgeStart.toVector());
-            for (double d = 0.0; d < 1.0; d += actualDensity) {
-                Location particleLoc = edgeStart.clone().add(direction.clone().multiply(d));
-                player.spawnParticle(Particle.DUST, particleLoc, 1, 0.0, 0.0, 0.0, 0.0,
-                        (Object) new Particle.DustOptions(color, 0.9f));
-            }
-        }
-    }
-
     /**
      * 同步查找最近的末地门框架
-     * 
+     *
      * @param center 中心位置
      * @param radius 搜索半径
      * @return 最近的末地门框架位置，如果未找到则返回null
      * @deprecated 使用异步版本
-     *             {@link #findNearestPortalFrameAsync(Location, int, Consumer)}
+     * {@link #findNearestPortalFrameAsync(Location, int, Consumer)}
      */
     @Deprecated
-    private Location findNearestPortalFrame(Location center, int radius) {
+    public static Location findNearestPortalFrame(Location center, int radius) {
         World world = center.getWorld();
         if (world == null) {
             return null;
@@ -1528,12 +891,12 @@ public class MasterListener
 
     /**
      * 异步查找最近的末地门框架
-     * 
+     *
      * @param center   中心位置
      * @param radius   搜索半径
      * @param callback 回调函数，接收找到的末地门框架位置
      */
-    private void findNearestPortalFrameAsync(Location center, int radius, Consumer<Location> callback) {
+    public static void findNearestPortalFrameAsync(Location center, int radius, Consumer<Location> callback) {
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -1557,384 +920,15 @@ public class MasterListener
         }.runTaskAsynchronously(TOCpluginNative.getInstance());
     }
 
-    private String getDirectionString(Player player, double angle) {
-        if ((angle = (angle % 360.0 + 360.0) % 360.0) >= 337.5 || angle < 22.5) {
-            return LanguageManager.getInstance().getString(player, "messages.front");
-        }
-        if (angle < 67.5) {
-            return LanguageManager.getInstance().getString(player, "messages.front-right");
-        }
-        if (angle < 112.5) {
-            return LanguageManager.getInstance().getString(player, "messages.right");
-        }
-        if (angle < 157.5) {
-            return LanguageManager.getInstance().getString(player, "messages.right-rear");
-        }
-        if (angle < 202.5) {
-            return LanguageManager.getInstance().getString(player, "messages.back");
-        }
-        if (angle < 247.5) {
-            return LanguageManager.getInstance().getString(player, "messages.left-rear");
-        }
-        if (angle < 292.5) {
-            return LanguageManager.getInstance().getString(player, "messages.left");
-        }
-        if (angle < 337.5) {
-            return LanguageManager.getInstance().getString(player, "messages.left-front");
-        }
-        return "";
-    }
-
-    private void handleWeatherMenuClick(InventoryClickEvent event, Player player) {
-        ItemStack clicked = event.getCurrentItem();
-        if (clicked == null) {
-            return;
-        }
-        switch (clicked.getType()) {
-            case SUNFLOWER: {
-                player.getWorld().setClearWeatherDuration(6000);
-                player.getWorld().setStorm(false);
-                player.getWorld().setThundering(false);
-                break;
-            }
-            case WATER_BUCKET: {
-                player.getWorld().setWeatherDuration(6000);
-                player.getWorld().setStorm(true);
-                player.getWorld().setThundering(false);
-                break;
-            }
-            case LIGHTNING_ROD: {
-                player.getWorld().setWeatherDuration(6000);
-                player.getWorld().setThunderDuration(6000);
-                player.getWorld().setStorm(true);
-                player.getWorld().setThundering(true);
-                break;
-            }
-            case BARRIER: {
-                guiManager.openMainMenu(player);
-                break;
-            }
-            default: {
-                throw new IllegalArgumentException("Unexpected value: " + String.valueOf((Object) clicked.getType()));
-            }
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    private void handlePlayerDetailClick(InventoryClickEvent event, Player player) {
-        int dashIndex;
-        ItemStack clicked = event.getCurrentItem();
-        if (clicked == null) {
-            return;
-        }
-        String title = event.getView().getTitle();
-        String cleanTitle = ChatColor.stripColor((String) title);
-        String playerDetailPrefix = "玩家详情 - ";
-        String targetName = null;
-        if (cleanTitle.startsWith(playerDetailPrefix)) {
-            targetName = cleanTitle.substring(playerDetailPrefix.length());
-        } else if (cleanTitle.contains((CharSequence) "玩家详情") && cleanTitle.contains((CharSequence) " - ")
-                && (dashIndex = cleanTitle.lastIndexOf(" - ")) != -1 && dashIndex + 3 < cleanTitle.length()) {
-            targetName = cleanTitle.substring(dashIndex + 3);
-        }
-        if (targetName == null || targetName.trim().isEmpty()) {
-            return;
-        }
-        Player target = player.getServer().getPlayer(targetName.trim());
-        if (target == null) {
-            player.sendMessage(String.valueOf((Object) ChatColor.RED) + "玩家已离线");
-            return;
-        }
-        switch (clicked.getType()) {
-            case ENDER_PEARL: {
-                // 检查全局导航开关和玩家权限
-                if (!PlayerTracker.getInstance().canPlayerUseNavigation(player.getUniqueId())) {
-                    player.sendMessage(String.valueOf((Object) ChatColor.RED)
-                            + LanguageManager.getInstance().getString(player, "messages.global-navigation-disabled"));
-                    player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
-                    return;
-                }
-
-                boolean isTargetHidden = PlayerTracker.getInstance().isLocationHidden(target.getUniqueId());
-                boolean isAuthenticated = TOCpluginNative.getInstance().isPlayerAuthenticated(player.getUniqueId());
-                boolean canBypass = isAuthenticated;
-
-                // 检查目标玩家是否处于旁观者模式
-                if (target.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
-                    player.sendMessage(String.valueOf((Object) ChatColor.YELLOW)
-                            + LanguageManager.getInstance().getString("messages.cannot-navigate-spectator"));
-                    return;
-                }
-
-                if (isTargetHidden && !canBypass) {
-                    player.sendMessage(String.valueOf((Object) ChatColor.RED)
-                            + LanguageManager.getInstance().getString("messages.target-hidden"));
-                    return;
-                }
-                boolean isNewTarget = PlayerTracker.getInstance().setNavigationTarget(player.getUniqueId(),
-                        target.getUniqueId());
-                if (!isNewTarget) {
-                    player.sendMessage(
-                            String.valueOf((Object) ChatColor.YELLOW) + LanguageManager.getInstance()
-                                    .getString("messages.already-navigating-to-player", target.getName()));
-                    return;
-                }
-                player.sendMessage(String.valueOf((Object) ChatColor.GREEN)
-                        + LanguageManager.getInstance().getString("messages.set-navigation-target")
-                        + target.getName()
-                        + (isTargetHidden && canBypass ? " (已绕过位置隐私保护)" : ""));
-                player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
-                if (!guiManager.isParticleFeatureEnabled(player.getUniqueId())) {
-                    guiManager.toggleParticleFeature(player.getUniqueId());
-                }
-                this.startPathfinding(player);
-                guiManager.openPlayerNavigationMenu(player);
-                break;
-            }
-            default: {
-                throw new IllegalArgumentException("Unexpected value: " + String.valueOf((Object) clicked.getType()));
-            }
-        }
-    }
-
-    private void handlePlayerListClick(InventoryClickEvent event, Player player) {
-        ItemStack clicked = event.getCurrentItem();
-        if (clicked == null) {
-            return;
-        }
-        if (clicked.getType() == Material.BARRIER) {
-            guiManager.openMainMenu(player);
-            return;
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    private void handlePlayerNavigationClick(InventoryClickEvent event, Player player) {
-        ItemStack clicked = event.getCurrentItem();
-        int slot = event.getSlot();
-        switch (clicked.getType()) {
-            case ARROW: {
-                // 分页按钮处理
-                if (slot == 45) {
-                    // 上一页按钮
-                    Integer currentPage = guiManager.getCurrentPage(player.getUniqueId());
-                    if (currentPage != null && currentPage > 0) {
-                        guiManager.openPlayerNavigationMenu(player, currentPage - 1);
-                    }
-                } else if (slot == 53) {
-                    // 下一页按钮
-                    Integer currentPage = guiManager.getCurrentPage(player.getUniqueId());
-                    if (currentPage != null) {
-                        guiManager.openPlayerNavigationMenu(player, currentPage + 1);
-                    }
-                }
-                break;
-            }
-            case COMPASS: {
-                guiManager.openPlayerNavigationMenu(player);
-                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.5f, 1.0f);
-                break;
-            }
-            case ENDER_PEARL: {
-                PlayerTracker.getInstance().stopNavigation(player.getUniqueId());
-                player.sendMessage(String.valueOf((Object) ChatColor.YELLOW)
-                        + LanguageManager.getInstance().getString(player, "messages.navigation-stopped"));
-                player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 0.5f);
-                guiManager.openPlayerNavigationMenu(player);
-                break;
-            }
-            case PLAYER_HEAD: {
-                ItemMeta meta = clicked.getItemMeta();
-                if (!(meta instanceof SkullMeta))
-                    break;
-                String targetName = ChatColor.stripColor((String) meta.getDisplayName());
-                Player target = player.getServer().getPlayer(targetName);
-                if (target != null && target.isOnline()) {
-                    boolean isTargetHidden = PlayerTracker.getInstance().isLocationHidden(target.getUniqueId());
-                    boolean isAuthenticated = TOCpluginNative.getInstance().isPlayerAuthenticated(player.getUniqueId());
-                    boolean canBypass = isAuthenticated;
-
-                    // 检查目标玩家是否处于旁观者模式
-                    if (target.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
-                        player.sendMessage(String.valueOf((Object) ChatColor.YELLOW)
-                                + LanguageManager.getInstance().getString(player,
-                                        "messages.cannot-navigate-spectator"));
-                        guiManager.openPlayerNavigationMenu(player);
-                        return;
-                    }
-
-                    // 如果目标玩家开启了位置隐私保护且当前玩家没有绕过权限
-                    if (isTargetHidden && !canBypass) {
-                        player.sendMessage(String.valueOf((Object) ChatColor.RED)
-                                + LanguageManager.getInstance().getString(player, "messages.target-hidden"));
-                        guiManager.openPlayerNavigationMenu(player);
-                        return;
-                    }
-                    // 检查全局导航开关和玩家权限
-                    if (!PlayerTracker.getInstance().canPlayerUseNavigation(player.getUniqueId())) {
-                        player.sendMessage(String.valueOf((Object) ChatColor.RED)
-                                + LanguageManager.getInstance().getString(player,
-                                        "messages.global-navigation-disabled"));
-                        player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
-                        guiManager.openPlayerNavigationMenu(player);
-                        return;
-                    }
-
-                    boolean isNewTarget = PlayerTracker.getInstance().setNavigationTarget(player.getUniqueId(),
-                            target.getUniqueId());
-                    if (!isNewTarget) {
-                        player.sendMessage(
-                                String.valueOf((Object) ChatColor.YELLOW) + LanguageManager.getInstance()
-                                        .getString("messages.already-navigating-to-player", target.getName()));
-                        guiManager.openPlayerNavigationMenu(player);
-                        return;
-                    }
-                    player.sendMessage(String.valueOf((Object) ChatColor.GREEN)
-                            + LanguageManager.getInstance().getString(player, "messages.set-navigation-target")
-                            + target.getName()
-                            + (isTargetHidden && canBypass
-                                    ? LanguageManager.getInstance().getString(player,
-                                            "messages.bypass-location-privacy")
-                                    : ""));
-                    player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
-                    if (!guiManager.isParticleFeatureEnabled(player.getUniqueId())) {
-                        guiManager.toggleParticleFeature(player.getUniqueId());
-                    }
-                    this.startPathfinding(player);
-                    guiManager.openPlayerNavigationMenu(player);
-                    break;
-                }
-                player.sendMessage(String.valueOf((Object) ChatColor.RED)
-                        + LanguageManager.getInstance().getString(player, "messages.unknown-player"));
-                break;
-            }
-            case LIME_DYE:
-            case GRAY_DYE: {
-                PlayerTracker.getInstance().toggleHideLocation(player.getUniqueId());
-                boolean isHidden = PlayerTracker.getInstance().isLocationHidden(player.getUniqueId());
-                player.sendMessage(String.valueOf((Object) ChatColor.GREEN)
-                        + LanguageManager.getInstance().getString(player, "messages.location-hidden-status",
-                                isHidden ? LanguageManager.getInstance().getString(player, "messages.location-hidden")
-                                        : LanguageManager.getInstance().getString(player,
-                                                "messages.location-visible")));
-                player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.5f, 1.0f);
-                guiManager.openPlayerNavigationMenu(player);
-                break;
-            }
-            case END_PORTAL_FRAME: {
-                // 检查全局导航开关和玩家权限
-                if (!PlayerTracker.getInstance().canPlayerUseNavigation(player.getUniqueId())) {
-                    player.sendMessage(String.valueOf((Object) ChatColor.RED)
-                            + LanguageManager.getInstance().getString(player, "messages.global-navigation-disabled"));
-                    player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
-                    guiManager.openPlayerNavigationMenu(player);
-                    break;
-                }
-
-                player.sendMessage(String.valueOf((Object) ChatColor.YELLOW)
-                        + LanguageManager.getInstance().getString(player, "messages.stronghold-searching"));
-                final long startTime = System.currentTimeMillis();
-                Bukkit.getScheduler().runTask(TOCpluginNative.getInstance(), () -> {
-                    final Location strongholdLoc = player.getWorld().locateNearestStructure(player.getLocation(),
-                            StructureType.STRONGHOLD, 100000, false);
-                    final double timeTaken = (System.currentTimeMillis() - startTime) / 1000.0;
-                    if (strongholdLoc != null) {
-                        player.sendMessage(String.valueOf((Object) ChatColor.GREEN) + LanguageManager.getInstance()
-                                .getString(player, "messages.stronghold-search-complete"));
-                        player.sendMessage(
-                                String.valueOf((Object) ChatColor.GRAY) + LanguageManager.getInstance().getString(
-                                        player, "messages.stronghold-search-time", String.format("%.2f", timeTaken)));
-                        player.sendMessage(String.valueOf((Object) ChatColor.GRAY) + LanguageManager.getInstance()
-                                .getString(player, "messages.stronghold-coordinates", strongholdLoc.getBlockX(),
-                                        strongholdLoc.getBlockY(), strongholdLoc.getBlockZ()));
-                        PlayerTracker.getInstance().setStrongholdNavigation(player.getUniqueId(), strongholdLoc);
-                        player.sendMessage(String.valueOf((Object) ChatColor.GREEN) + LanguageManager.getInstance()
-                                .getString(player, "messages.stronghold-navigation-set"));
-                        player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 0.5f, 1.0f);
-                        if (!guiManager.isParticleFeatureEnabled(player.getUniqueId())) {
-                            guiManager.toggleParticleFeature(player.getUniqueId());
-                        }
-                        MasterListener.this.startPathfinding(player);
-                    } else {
-                        player.sendMessage(String.valueOf((Object) ChatColor.RED)
-                                + LanguageManager.getInstance().getString(player, "messages.stronghold-not-found"));
-                        player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
-                    }
-                    guiManager.openPlayerNavigationMenu(player);
-                });
-                break;
-            }
-            case BEACON: {
-                // 检查全局导航开关和玩家权限
-                if (!PlayerTracker.getInstance().canPlayerUseNavigation(player.getUniqueId())) {
-                    player.sendMessage(String.valueOf((Object) ChatColor.RED)
-                            + LanguageManager.getInstance().getString(player, "messages.global-navigation-disabled"));
-                    player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
-                    guiManager.openPlayerNavigationMenu(player);
-                    break;
-                }
-
-                player.playSound(player.getLocation(), Sound.BLOCK_BEACON_AMBIENT, 0.5f, 1.0f);
-                guiManager.openPlayerNavigationMenu(player);
-                this.findNearestBeaconAsync(player, 100, beaconLoc -> {
-                    if (beaconLoc != null) {
-                        new BukkitRunnable() {
-                            @Override
-                            public void run() {
-                                // 设置信标导航目标
-                                PlayerTracker.getInstance().setBeaconNavigation(player.getUniqueId(), beaconLoc);
-                                player.sendMessage(String.valueOf((Object) ChatColor.GREEN)
-                                        + LanguageManager.getInstance().getString(player,
-                                                "messages.beacon-navigation-set"));
-                                player.playSound(player.getLocation(), Sound.BLOCK_BEACON_ACTIVATE, 0.5f, 1.0f);
-
-                                // 确保粒子效果已启用
-                                if (!guiManager.isParticleFeatureEnabled(player.getUniqueId())) {
-                                    guiManager.toggleParticleFeature(player.getUniqueId());
-                                }
-
-                                // 延迟一个tick启动寻路，确保导航目标已正确设置
-                                new BukkitRunnable() {
-                                    @Override
-                                    public void run() {
-                                        startPathfinding(player);
-                                    }
-                                }.runTaskLater(TOCpluginNative.getInstance(), 1L);
-                            }
-                        }.runTask(TOCpluginNative.getInstance());
-                    } else {
-                        // 未找到信标：此处提示一次，超时分支也会提示，但二者不会同时发生
-                        if (player.isOnline()) {
-                            player.sendMessage(String.valueOf((Object) ChatColor.RED)
-                                    + LanguageManager.getInstance().getString(player, "messages.no-beacon-found"));
-                        }
-                    }
-                });
-                break;
-            }
-            // 已删除导航到末地传送门框架的功能
-            default:
-                break;
-        }
-    }
-
-    /**
-     * 用于存储信标搜索结果的包装类，解决lambda表达式中的变量必须是final的问题
-     */
-    private static class BeaconSearchResult {
-        Location nearestBeacon = null;
-        double minDistance = Double.MAX_VALUE;
-    }
-
     /**
      * 异步查找最近的信标
-     * 
-     * @param player    玩家
-     * @param maxRadius 最大搜索半径（方块数）
-     * @param callback  回调函数，参数为找到的信标位置，如果没有找到则为null
+     *
+     * @param player         玩家
+     * @param maxRadius      最大搜索半径（方块数）
+     * @param callback       回调函数，参数为找到的信标位置，如果没有找到则为null
      */
     @SuppressWarnings("deprecation")
-    private void findNearestBeaconAsync(Player player, int maxRadius, Consumer<Location> callback) {
+    public static void findNearestBeaconAsync(Player player, int maxRadius, Consumer<Location> callback) {
         Location playerLocation = player.getLocation().clone();
         World world = playerLocation.getWorld();
         if (world == null) {
@@ -1945,7 +939,7 @@ public class MasterListener
         UUID playerId = player.getUniqueId();
 
         // 取消之前的搜索任务（如果有）
-        removeBeaconSearchTask(playerId);
+        TaskManager.removeBeaconSearchTask(playerId);
 
         // 生成随机四位数编号
         int taskId = (int) (Math.random() * 9000) + 1000; // 生成1000-9999之间的随机数
@@ -2057,7 +1051,7 @@ public class MasterListener
                             }
 
                             // 清理任务记录
-                            removeBeaconSearchTask(playerId);
+                            TaskManager.removeBeaconSearchTask(playerId);
 
                             if (finalNearestBeacon != null) {
                                 // 在聊天栏打印最近信标的坐标以及信标下的方块
@@ -2113,7 +1107,7 @@ public class MasterListener
                             }
 
                             // 清理任务记录
-                            removeBeaconSearchTask(playerId);
+                            TaskManager.removeBeaconSearchTask(playerId);
 
                             if (player.isOnline()) {
                                 player.sendMessage(
@@ -2129,12 +1123,12 @@ public class MasterListener
         }.runTaskLaterAsynchronously(TOCpluginNative.getInstance(), 20 * 20); // 20秒 = 20 ticks/秒 * 20秒
 
         // 将任务添加到管理器中
-        addBeaconSearchTask(playerId, searchTask, timeoutTask);
+        TaskManager.addBeaconSearchTask(playerId, searchTask, timeoutTask);
     }
 
     /**
      * 在指定的X和Z坐标位置搜索信标
-     * 
+     *
      * @param world          世界
      * @param x              X坐标
      * @param z              Z坐标
@@ -2143,8 +1137,8 @@ public class MasterListener
      * @param maxY           最大Y坐标
      * @param resultHandler  处理找到的信标的回调
      */
-    private void searchBeaconAtPosition(World world, int x, int z, Location playerLocation,
-            int minY, int maxY, BeaconResultHandler resultHandler) {
+    public static void searchBeaconAtPosition(World world, int x, int z, Location playerLocation,
+                                int minY, int maxY, BeaconResultHandler resultHandler) {
         // 从玩家高度开始，向上下扩展搜索
         int playerY = playerLocation.getBlockY();
 
@@ -2172,54 +1166,12 @@ public class MasterListener
         }
     }
 
-    /**
-     * 检查指定位置是否为信标
-     * 
-     * @param world          世界
-     * @param x              X坐标
-     * @param y              Y坐标
-     * @param z              Z坐标
-     * @param playerLocation 玩家位置
-     * @param resultHandler  处理找到的信标的回调
-     */
-    private void checkForBeacon(World world, int x, int y, int z, Location playerLocation,
-            BeaconResultHandler resultHandler) {
-        Block block = world.getBlockAt(x, y, z);
-        if (block.getType() == Material.BEACON) {
-            // 获取精确的方块位置，不添加0.5偏移
-            Location beaconLoc = block.getLocation().clone();
-            // 计算距离时使用中心点
-            Location beaconCenter = beaconLoc.clone().add(0.5, 0.5, 0.5);
-            double distanceSquared = playerLocation.distanceSquared(beaconCenter);
-
-            // 获取信标下方的方块
-            Block blockBelow = world.getBlockAt(x, y - 1, z);
-
-            // 调用回调处理结果
-            resultHandler.handleResult(beaconLoc, distanceSquared, blockBelow);
-        }
-    }
-
-    /**
-     * 处理找到的信标的回调接口
-     */
-    private interface BeaconResultHandler {
-        /**
-         * 处理找到的信标
-         * 
-         * @param location        信标位置
-         * @param distanceSquared 距离的平方
-         * @param blockBelow      信标下方的方块
-         */
-        void handleResult(Location location, double distanceSquared, Block blockBelow);
-    }
-
-    private Location findWaterLanding(Location playerLoc, Location targetLoc) {
+    public static Location findWaterLanding(Location playerLoc, Location targetLoc) {
         int startY = playerLoc.getBlockY();
         int endY = targetLoc.getBlockY();
         int x = targetLoc.getBlockX();
         int z = targetLoc.getBlockZ();
-        Location safeLanding = this.findSafeLandingNearWater(targetLoc);
+        Location safeLanding = findSafeLandingNearWater(targetLoc);
         if (safeLanding != null) {
             return safeLanding;
         }
@@ -2261,7 +1213,7 @@ public class MasterListener
                         continue;
                     Location nearbyTarget = new Location(playerLoc.getWorld(), (double) (x + dx), (double) endY,
                             (double) (z + dz));
-                    Location nearbySafeLanding = this.findSafeLandingNearWater(nearbyTarget);
+                    Location nearbySafeLanding = findSafeLandingNearWater(nearbyTarget);
                     if (nearbySafeLanding != null) {
                         return nearbySafeLanding;
                     }
@@ -2293,7 +1245,7 @@ public class MasterListener
         return null;
     }
 
-    private Location findSafeLandingNearWater(Location waterLoc) {
+    public static Location findSafeLandingNearWater(Location waterLoc) {
         int z;
         int y;
         int x;
@@ -2303,7 +1255,7 @@ public class MasterListener
         World world = waterLoc.getWorld();
         Location aboveWater = new Location(world, (double) (x = waterLoc.getBlockX()),
                 (double) ((y = waterLoc.getBlockY()) + 1), (double) (z = waterLoc.getBlockZ()));
-        if (this.isSafeLanding(aboveWater)) {
+        if (isSafeLanding(aboveWater)) {
             return aboveWater;
         }
 
@@ -2322,7 +1274,7 @@ public class MasterListener
                         checkedLocations++;
                         Location checkLoc = new Location(world, (double) (x + dx), (double) (y + dy),
                                 (double) (z + dz));
-                        if (!this.isSafeLanding(checkLoc)
+                        if (!isSafeLanding(checkLoc)
                                 || checkLoc.getBlock().getType().name().contains((CharSequence) "WATER"))
                             continue;
                         return checkLoc;
@@ -2333,7 +1285,7 @@ public class MasterListener
         return null;
     }
 
-    private boolean isSafeLanding(Location loc) {
+    public static boolean isSafeLanding(Location loc) {
         if (loc == null) {
             return false;
         }
@@ -2359,7 +1311,7 @@ public class MasterListener
         return feetPassable && headPassable && groundSolid && !isDangerous;
     }
 
-    private void generateJumpParabola(Player player, Location jumpStart, Location jumpEnd) {
+    public static void generateJumpParabola(Player player, Location jumpStart, Location jumpEnd) {
         double horizontalDistance = Math
                 .sqrt(Math.pow(jumpEnd.getX() - jumpStart.getX(), 2) + Math.pow(jumpEnd.getZ() - jumpStart.getZ(), 2));
         double verticalDistance = jumpEnd.getY() - jumpStart.getY();
@@ -2384,7 +1336,7 @@ public class MasterListener
             double y = jumpStart.getY() + verticalDistance * t + maxHeight * 4 * t * (1 - t);
 
             Location intermediateLoc = new Location(jumpStart.getWorld(), x, y, z);
-            Location particleLoc = this.adjustParticleLocationForWater(intermediateLoc);
+            Location particleLoc = ParticleGen.adjustParticleLocationForWater(intermediateLoc);
 
             float size = (step == 0 || step == steps) ? particleSize * 1.5f : particleSize * 1.2f;
             player.spawnParticle(particleType, particleLoc, 1, 0.0, 0.0, 0.0, 0.0,
@@ -2392,26 +1344,106 @@ public class MasterListener
         }
     }
 
-    @SuppressWarnings("deprecation")
-    @org.bukkit.event.EventHandler
-    public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
-        org.bukkit.entity.Player player = event.getPlayer();
-        if (PlayerTracker.getInstance().isNavigating(player.getUniqueId())) {
-            PlayerTracker.getInstance().stopNavigation(player.getUniqueId());
-            player.sendMessage(String.valueOf((Object) ChatColor.YELLOW) + LanguageManager.getInstance().getString(player, "messages.navigation-stopped"));
+    /**
+     * 检查指定位置是否为信标
+     *
+     * @param world          世界
+     * @param x              X坐标
+     * @param y              Y坐标
+     * @param z              Z坐标
+     * @param playerLocation 玩家位置
+     * @param resultHandler  处理找到的信标的回调
+     */
+    public static void checkForBeacon(World world, int x, int y, int z, Location playerLocation,
+                               BeaconResultHandler resultHandler) {
+        Block block = world.getBlockAt(x, y, z);
+        if (block.getType() == Material.BEACON) {
+            // 获取精确的方块位置，不添加0.5偏移
+            Location beaconLoc = block.getLocation().clone();
+            // 计算距离时使用中心点
+            Location beaconCenter = beaconLoc.clone().add(0.5, 0.5, 0.5);
+            double distanceSquared = playerLocation.distanceSquared(beaconCenter);
+
+            // 获取信标下方的方块
+            Block blockBelow = world.getBlockAt(x, y - 1, z);
+
+            // 调用回调处理结果
+            resultHandler.handleResult(beaconLoc, distanceSquared, blockBelow);
         }
     }
 
     @SuppressWarnings("deprecation")
-    @org.bukkit.event.EventHandler
-    public void onWorldUnload(WorldUnloadEvent event) {
-        org.bukkit.World world = event.getWorld();
-        for (org.bukkit.entity.Player p : world.getPlayers()) {
-            if (PlayerTracker.getInstance().isNavigating(p.getUniqueId())) {
-                PlayerTracker.getInstance().stopNavigation(p.getUniqueId());
-                p.sendMessage(String.valueOf((Object) ChatColor.YELLOW) + LanguageManager.getInstance().getString(p, "messages.navigation-stopped"));
-            }
+    public static void updateActionBarWithNewTarget(Player player, Location newTarget, String newTargetName) {
+        Location playerLoc = player.getLocation().clone();
+        double distance = playerLoc.distance(newTarget);
+        double horizontalDistance = Math.sqrt(Math.pow(playerLoc.getX() - newTarget.getX(), 2.0)
+                + Math.pow(playerLoc.getZ() - newTarget.getZ(), 2.0));
+        double verticalDistance = newTarget.getY() - playerLoc.getY();
+        Vector direction = newTarget.toVector().subtract(playerLoc.toVector());
+        float playerYaw = playerLoc.getYaw();
+        double angle = Math.toDegrees(Math.atan2(-direction.getX(), direction.getZ()));
+        double relativeAngle = (angle - playerYaw + 360.0) % 360.0;
+        String directionString = getDirectionString(player, relativeAngle);
+        String verticalDirection = verticalDistance > 0.0
+                ? LanguageManager.getInstance().getString(player, "messages.up")
+                : LanguageManager.getInstance().getString(player, "messages.down");
+        if (PlayerTracker.getInstance().isActionBarSuppressed(player.getUniqueId())) {
+            return;
         }
+        String message = LanguageManager.getInstance().getString(player, "messages.action-bar",
+                newTargetName, String.format("%.1f", distance), directionString, (int) relativeAngle + "°",
+                String.format("%.1f", horizontalDistance), String.format("%.1f", Math.abs(verticalDistance)),
+                verticalDirection);
+        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new net.md_5.bungee.api.chat.TextComponent(message));
     }
 
+    public static String getDirectionString(Player player, double angle) {
+        if ((angle = (angle % 360.0 + 360.0) % 360.0) >= 337.5 || angle < 22.5) {
+            return LanguageManager.getInstance().getString(player, "messages.front");
+        }
+        if (angle < 67.5) {
+            return LanguageManager.getInstance().getString(player, "messages.front-right");
+        }
+        if (angle < 112.5) {
+            return LanguageManager.getInstance().getString(player, "messages.right");
+        }
+        if (angle < 157.5) {
+            return LanguageManager.getInstance().getString(player, "messages.right-rear");
+        }
+        if (angle < 202.5) {
+            return LanguageManager.getInstance().getString(player, "messages.back");
+        }
+        if (angle < 247.5) {
+            return LanguageManager.getInstance().getString(player, "messages.left-rear");
+        }
+        if (angle < 292.5) {
+            return LanguageManager.getInstance().getString(player, "messages.left");
+        }
+        if (angle < 337.5) {
+            return LanguageManager.getInstance().getString(player, "messages.left-front");
+        }
+        return "";
+    }
+
+    /**
+     * 处理找到的信标的回调接口
+     */
+    public interface BeaconResultHandler {
+        /**
+         * 处理找到的信标
+         *
+         * @param location        信标位置
+         * @param distanceSquared 距离的平方
+         * @param blockBelow      信标下方的方块
+         */
+        void handleResult(Location location, double distanceSquared, Block blockBelow);
+    }
+
+    /**
+     * 用于存储信标搜索结果的包装类，解决lambda表达式中的变量必须是final的问题
+     */
+    private static class BeaconSearchResult {
+        Location nearestBeacon = null;
+        double minDistance = Double.MAX_VALUE;
+    }
 }

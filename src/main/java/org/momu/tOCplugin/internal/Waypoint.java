@@ -1,4 +1,4 @@
-package org.momu.tOCplugin;
+package org.momu.tOCplugin.internal;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;

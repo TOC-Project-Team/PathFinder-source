@@ -4,6 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.momu.tOCplugin.internal.Waypoint;
 
 import java.io.File;
 import java.io.IOException;
