@@ -1,0 +1,6 @@
+# PathFinder License Configuration - Development Test
+# 将此文件复制到 plugins/PathFinder/validata.yml 进行测试
+ 
+cards:
+  - "XXXXXXXXXXXXXXXX"  # 开发模式 - 跳过网络验证
+  # - "YOUR_REAL_CARD_HERE"  # 生产模式 - 需要真实验证 

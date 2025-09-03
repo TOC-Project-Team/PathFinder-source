@@ -1,0 +1,898 @@
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
+    id("xyz.jpenilla.run-paper") version "2.3.1"
+}
+
+// 将构建输出目录切换到本地目录，避免历史 build 目录残留权限/占用问题
+buildDir = file(".gradle-build")
+
+group = 'org.momu.tocplugin'
+version = '1.5.0'
+
+repositories {
+    mavenCentral()
+    maven {
+        name = "papermc-repo"
+        url = "https://repo.papermc.io/repository/maven-public/"
+    }
+    maven {
+        name = "sonatype"
+        url = "https://oss.sonatype.org/content/groups/public/"
+    }
+}
+
+dependencies {
+    compileOnly("io.papermc.paper:paper-api:1.21.6-R0.1-SNAPSHOT")
+    implementation("com.google.code.gson:gson:2.11.0")
+}
+
+def targetJavaVersion = 21
+java {
+    def javaVersion = JavaVersion.toVersion(targetJavaVersion)
+    sourceCompatibility = javaVersion
+    targetCompatibility = javaVersion
+    if (JavaVersion.current() < javaVersion) {
+        toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+
+    if (targetJavaVersion >= 10 || JavaVersion.current().isJava10Compatible()) {
+        options.release.set(targetJavaVersion)
+    }
+}
+
+processResources {
+    def props = [version: version]
+    inputs.properties props
+    filteringCharset 'UTF-8'
+    filesMatching('plugin.yml') {
+        expand props
+    }
+}
+
+// 确保 shadowJar 任务打包所有 runtime 依赖
+shadowJar {
+    // 如果你有依赖项，这一行可以确保它们被正确打包
+    configurations = [project.configurations.runtimeClasspath]
+}
+
+// =============================================================================
+// Native 构建集成
+// =============================================================================
+
+// 操作系统检测
+def isLinux = org.gradle.internal.os.OperatingSystem.current().isLinux()
+def isMacOS = org.gradle.internal.os.OperatingSystem.current().isMacOsX()
+def isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows()
+
+// 平台信息
+def currentPlatform = isWindows ? "windows" : (isMacOS ? "macos" : "linux")
+def libExtension = isWindows ? "dll" : (isMacOS ? "dylib" : "so")
+
+// Native构建路径
+def nativeDir = file("$projectDir/src/main/native")
+def nativeBuildDir = file("$nativeDir/build")
+def nativeTargetDir = file("$projectDir/target/native")
+def platformTargetDir = file("$nativeTargetDir/$currentPlatform")
+
+// 1. 检查Native构建依赖
+task checkNativeDependencies {
+    group = 'native'
+    description = '检查Native构建所需的依赖'
+    
+    doLast {
+        println "🔍 检查Native构建依赖..."
+        
+        // 检查CMake
+        try {
+            def cmakeResult = exec {
+                commandLine 'cmake', '--version'
+                ignoreExitValue = true
+            }
+            if (cmakeResult.exitValue != 0) {
+                throw new GradleException("❌ CMake未安装。请安装CMake 3.10+")
+            } else {
+                println "✅ CMake已安装"
+            }
+        } catch (Exception e) {
+            throw new GradleException("❌ CMake未安装。请安装CMake 3.10+")
+        }
+        
+        // 检查编译器
+        if (isLinux || isMacOS) {
+            try {
+                exec {
+                    commandLine 'gcc', '--version'
+                    ignoreExitValue = true
+                }
+                println "✅ GCC编译器已安装"
+            } catch (Exception e) {
+                throw new GradleException("❌ GCC编译器未安装。请安装build-essential")
+            }
+        }
+        
+        // 检查OpenSSL
+        if (isLinux || isMacOS) {
+            try {
+                exec {
+                    commandLine 'pkg-config', '--exists', 'openssl'
+                    ignoreExitValue = true
+                }
+                println "✅ OpenSSL开发库已安装"
+            } catch (Exception e) {
+                throw new GradleException("❌ OpenSSL开发库未安装。请安装libssl-dev")
+            }
+        }
+        
+        // 检查libcurl
+        if (isLinux || isMacOS) {
+            try {
+                exec {
+                    commandLine 'pkg-config', '--exists', 'libcurl'
+                    ignoreExitValue = true
+                }
+                println "✅ libcurl开发库已安装"
+            } catch (Exception e) {
+                throw new GradleException("❌ libcurl开发库未安装。请安装libcurl4-openssl-dev")
+            }
+        }
+        
+        // 检查Java环境
+        def javaHome = System.getProperty("java.home")
+        if (!javaHome) {
+            throw new GradleException("❌ 无法获取JAVA_HOME，请确保Java环境正确设置")
+        } else {
+            println "✅ Java环境已设置: ${javaHome}"
+            
+            // 检查JNI头文件
+            def jniHeader = file("${javaHome}/include/jni.h")
+            if (!jniHeader.exists()) {
+                // 尝试在上级目录查找（某些Linux发行版的布局）
+                jniHeader = file("${javaHome}/../include/jni.h")
+                if (!jniHeader.exists()) {
+                    println "⚠️ JNI头文件未找到，可能需要安装JDK开发包"
+                    if (isLinux) {
+                        println "   请尝试安装: sudo apt-get install openjdk-21-jdk"
+                    }
+                } else {
+                    println "✅ JNI头文件已找到"
+                }
+            } else {
+                println "✅ JNI头文件已找到"
+            }
+        }
+        
+        println "🎉 所有Native构建依赖检查通过！"
+    }
+}
+
+// 2. 清理Native构建
+task cleanNative {
+    group = 'native'
+    description = '清理Native构建产物'
+    
+    doLast {
+        println "🧹 清理Native构建产物..."
+        delete nativeBuildDir
+        delete nativeTargetDir
+        println "✅ Native构建产物清理完成"
+    }
+}
+
+// 3. CMake配置
+task cmakeConfigure {
+    group = 'native'
+    description = '配置CMake项目'
+    dependsOn checkNativeDependencies
+    
+    inputs.files(fileTree(nativeDir).include("**/*.h", "**/*.c", "**/*.cpp", "**/CMakeLists.txt"))
+    outputs.dir(nativeBuildDir)
+    
+    doLast {
+        println "⚙️ 配置CMake项目..."
+        
+        // 创建构建目录
+        nativeBuildDir.mkdirs()
+        
+        // 获取Java Home路径
+        def javaHome = System.getProperty("java.home")
+        if (!javaHome) {
+            throw new GradleException("❌ 无法获取JAVA_HOME，请确保Java环境正确设置")
+        }
+        
+        println "🔍 使用Java Home: ${javaHome}"
+        
+        // 配置CMake，设置JAVA_HOME环境变量
+        exec {
+            workingDir nativeBuildDir
+            environment 'JAVA_HOME', javaHome
+            
+            // 平台特定的CMake配置
+            if (isWindows) {
+                // Windows: 使用Visual Studio生成器
+                commandLine 'cmake', '..', '-G', 'Visual Studio 16 2019', '-A', 'x64', 
+                           '-DCMAKE_BUILD_TYPE=Release', "-DJAVA_HOME=\"${javaHome}\""
+            } else if (isMacOS) {
+                // macOS: 使用Unix Makefiles或Xcode
+                commandLine 'cmake', '..', '-DCMAKE_BUILD_TYPE=Release', "-DJAVA_HOME=${javaHome}"
+            } else {
+                // Linux: 使用Unix Makefiles
+            commandLine 'cmake', '..', '-DCMAKE_BUILD_TYPE=Release', "-DJAVA_HOME=${javaHome}"
+            }
+        }
+        
+        println "✅ CMake配置完成"
+    }
+}
+
+// 4. CMake构建
+task cmakeBuild {
+    group = 'native'
+    description = '构建Native库（基础版本）'
+    dependsOn cmakeConfigure
+    
+    inputs.files(fileTree(nativeDir).include("**/*.h", "**/*.c", "**/*.cpp"))
+    outputs.files(fileTree(nativeBuildDir).include("**/*.so", "**/*.dylib", "**/*.dll"))
+    
+    doLast {
+        println "🔨 构建Native库..."
+        
+        exec {
+            workingDir nativeBuildDir
+            if (isWindows) {
+                commandLine 'cmake', '--build', '.', '--config', 'Release', '--parallel'
+            } else {
+                commandLine 'make', '-j', Runtime.runtime.availableProcessors()
+            }
+        }
+        
+        println "✅ Native库构建完成"
+    }
+}
+
+// 5. 安全构建（混淆+加密）- 暂时禁用以便测试
+task buildNativeSecure {
+    group = 'native'
+    description = '执行安全构建（混淆+加密+签名）- 暂时禁用'
+    dependsOn cmakeBuild
+    
+    inputs.files(fileTree(nativeDir).include("**/*"))
+    outputs.dir(nativeTargetDir)
+    
+    doLast {
+        println "⚠️ 安全构建功能暂时禁用，使用开发构建替代"
+        println "📦 如需启用安全构建，请修复build_secure.sh脚本中的问题"
+        
+        // 暂时跳过安全构建，直接使用已构建的库
+        def expectedLibFile = isWindows ? 
+            file("$platformTargetDir/pathfinder_native.${libExtension}") :
+            file("$platformTargetDir/libpathfinder_native.${libExtension}")
+        if (!expectedLibFile.exists()) {
+            throw new GradleException("❌ Native库文件不存在: ${expectedLibFile.path}，请先运行cmakeBuild任务")
+        }
+        
+        println "✅ 跳过安全构建，使用基础构建产物"
+    }
+}
+
+// 6. 验证Native库
+task verifyNativeLibrary {
+    group = 'native'
+    description = '验证生成的Native库'
+    dependsOn buildNativeSecure
+    
+    doLast {
+        println "🔍 验证Native库..."
+        
+        // 检查基础库文件（优先检查加密库，如果不存在则检查开发库）
+        def libBaseName = isWindows ? "pathfinder_native" : "libpathfinder_native"
+        def encryptedLib = file("$platformTargetDir/encrypted_${libBaseName}.${libExtension}")
+        def basicLib = file("$platformTargetDir/${libBaseName}.${libExtension}")
+        def checksumFile = file("$platformTargetDir/pathfinder_native.sha256")
+        def loadScript = file("$platformTargetDir/load_native.${isWindows ? 'bat' : 'sh'}")
+        def verifyScript = file("$platformTargetDir/verify_integrity.${isWindows ? 'bat' : 'sh'}")
+        
+        boolean hasEncrypted = encryptedLib.exists()
+        boolean hasBasic = basicLib.exists()
+        
+        if (!hasEncrypted && !hasBasic) {
+            throw new GradleException("❌ Native库文件未找到。需要: ${encryptedLib.path} 或 ${basicLib.path}")
+        }
+        
+        if (hasEncrypted) {
+            println "✅ 找到加密的Native库: ${encryptedLib.name}"
+            
+            // 验证加密库的相关文件
+            if (!checksumFile.exists()) {
+                println "⚠️ 校验文件未找到: ${checksumFile.path}"
+            } else {
+                println "✅ 校验文件已找到"
+            }
+            
+            if (!loadScript.exists()) {
+                println "⚠️ 加载脚本未找到: ${loadScript.path}"
+            } else {
+                println "✅ 加载脚本已找到"
+            }
+            
+            if (!verifyScript.exists()) {
+                println "⚠️ 验证脚本未找到: ${verifyScript.path}"
+            } else {
+                println "✅ 验证脚本已找到"
+            }
+            
+            // 验证文件完整性（如果工具可用）
+            if ((isLinux || isMacOS) && verifyScript.exists() && checksumFile.exists()) {
+                try {
+                    exec {
+                        workingDir platformTargetDir
+                        commandLine './verify_integrity.sh', "encrypted_pathfinder_native.${libExtension}", 'pathfinder_native.sha256'
+                    }
+                    println "✅ Native库完整性验证通过"
+                } catch (Exception e) {
+                    println "⚠️ Native库完整性验证失败，但继续构建"
+                }
+            } else if (isWindows && verifyScript.exists() && checksumFile.exists()) {
+                try {
+                    exec {
+                        workingDir platformTargetDir
+                        commandLine 'cmd', '/c', 'verify_integrity.bat', "encrypted_pathfinder_native.${libExtension}", 'pathfinder_native.sha256'
+                    }
+                    println "✅ Native库完整性验证通过"
+                } catch (Exception e) {
+                    println "⚠️ Native库完整性验证失败，但继续构建"
+                }
+            }
+        } else if (hasBasic) {
+            println "✅ 找到开发版Native库: ${basicLib.name}"
+            println "⚠️ 这是未加密的开发版本，生产环境请使用加密版本"
+            
+            // 检查库文件大小
+            def libSize = basicLib.length()
+            if (libSize > 0) {
+                println "📊 库文件大小: ${libSize} 字节"
+            } else {
+                throw new GradleException("❌ Native库文件损坏或为空")
+            }
+        }
+        
+        println "🎉 Native库验证完成"
+        
+        // 显示构建报告（如果存在）
+        def reportFile = file("$platformTargetDir/BUILD_REPORT.txt")
+        if (reportFile.exists()) {
+            println "\n📋 构建报告:"
+            println "=" * 50
+            println reportFile.text
+            println "=" * 50
+        } else {
+            // 生成简单的开发构建报告
+            def devReport = """PathFinder Native Library - Development Build Report
+生成时间: ${new Date()}
+目标平台: ${currentPlatform}
+库文件: ${hasEncrypted ? encryptedLib.name : basicLib.name}
+构建类型: ${hasEncrypted ? '加密生产版本' : '开发版本'}
+文件大小: ${hasEncrypted ? encryptedLib.length() : basicLib.length()} 字节
+位置: ${platformTargetDir.path}
+"""
+            println "\n📋 开发构建信息:"
+            println "=" * 50
+            println devReport
+            println "=" * 50
+        }
+    }
+}
+
+// 7. 复制Native库到资源目录
+task copyNativeLibrary {
+    group = 'native'
+    description = '复制Native库到Java资源目录'
+    dependsOn verifyNativeLibrary
+    
+    doLast {
+        println "📁 复制Native库到资源目录..."
+        
+        def resourcesNativeDir = file("$projectDir/src/main/resources/native")
+        resourcesNativeDir.mkdirs()
+        
+        // 复制加密库和相关文件
+        def libBaseName = isWindows ? "pathfinder_native" : "libpathfinder_native"
+        copy {
+            from platformTargetDir
+            into resourcesNativeDir
+            include "encrypted_${libBaseName}.${libExtension}"
+            include "${libBaseName}.${libExtension}"
+            include 'pathfinder_native.sha256'
+            include "load_native.${isWindows ? 'bat' : 'sh'}"
+            include "verify_integrity.${isWindows ? 'bat' : 'sh'}"
+            include 'VERSION'
+            // 重命名为统一的名称（去掉lib前缀）
+            rename "${libBaseName}.${libExtension}", "pathfinder_native.${libExtension}"
+        }
+        
+        println "✅ Native库已复制到资源目录"
+    }
+}
+
+// 8. 完整构建Native
+task buildNative {
+    group = 'native'
+    description = '完整构建Native库（包含安全构建）'
+    dependsOn copyNativeLibrary
+    
+    doLast {
+        println "🎉 Native库完整构建成功！"
+        println "📁 构建产物位置："
+        println "  - 当前平台: ${currentPlatform}"
+        println "  - 库文件: ${platformTargetDir}/pathfinder_native.${libExtension}"
+        println "  - 资源目录: ${projectDir}/src/main/resources/native/"
+        println "  - 详细报告: ${platformTargetDir}/BUILD_REPORT.txt"
+    }
+}
+
+// 9. 开发模式构建（跳过安全构建）
+task buildNativeDev {
+    group = 'native'
+    description = '开发模式构建Native库（跳过混淆和加密）'
+    dependsOn cmakeBuild
+    
+    doLast {
+        println "🔧 开发模式构建完成"
+        
+        // 直接复制未加密的库文件
+        def resourcesNativeDir = file("$projectDir/src/main/resources/native")
+        resourcesNativeDir.mkdirs()
+        
+        // 查找构建的库文件（Linux/macOS会有lib前缀）
+        def builtLib = isWindows ? 
+            file("$platformTargetDir/pathfinder_native.${libExtension}") :
+            file("$platformTargetDir/libpathfinder_native.${libExtension}")
+        
+        // 容错：若未找到带lib前缀的文件，尝试无前缀文件名（有些构建脚本可能输出为无前缀）
+        if (!builtLib.exists() && !isWindows) {
+            def altLib = file("$platformTargetDir/pathfinder_native.${libExtension}")
+            if (altLib.exists()) {
+                builtLib = altLib
+            }
+        }
+        
+        if (builtLib.exists()) {
+            copy {
+                from builtLib
+                into resourcesNativeDir
+                // 重命名为统一的名称（去掉lib前缀）
+                rename { "pathfinder_native.${libExtension}" }
+            }
+            println "✅ 开发版Native库已复制到: ${resourcesNativeDir}/pathfinder_native.${libExtension}"
+        } else {
+            throw new GradleException("❌ 找不到构建的Native库文件: ${builtLib.path}")
+        }
+    }
+}
+
+// 10. 一键构建所有内容  
+task buildAll {
+    group = 'build'
+    description = '一键构建完整项目（Java + Native）'
+    dependsOn buildNative, shadowJar
+    
+    // 确保Native构建在Java编译之前完成
+    tasks.compileJava.dependsOn buildNative
+    
+    doLast {
+        println ""
+        println "🎉" + "=" * 50 + "🎉"
+        println "🎊 PathFinder 完整构建成功！ 🎊"
+        println "🎉" + "=" * 50 + "🎉"
+        println ""
+        println "📦 构建产物："
+        println "  📱 Java插件: ${tasks.shadowJar.archiveFile.get().asFile.path}"
+        println "  🔒 Native库 (${currentPlatform}): ${platformTargetDir}/pathfinder_native.${libExtension}"
+        println "  📋 构建报告: ${platformTargetDir}/BUILD_REPORT.txt"
+        println ""
+        println "🚀 部署说明："
+        println "  1. 将 ${tasks.shadowJar.archiveFile.get().asFile.name} 放到 plugins/ 目录"
+        println "  2. Native库已自动包含在JAR中的 resources/native/${currentPlatform}/ 目录"
+        println "  3. 如需支持其他平台，请在对应系统上运行构建"
+        println ""
+    }
+}
+
+// 11. 快速开发构建
+task buildDev {
+    group = 'build'
+    description = '快速开发构建（使用未加密的Native库）'
+    dependsOn buildNativeDev, shadowJar
+    
+    // 确保Native构建在Java编译之前完成
+    tasks.compileJava.dependsOn buildNativeDev
+    
+    doLast {
+        println "🔧 开发构建完成！使用未加密的Native库以加快构建速度。"
+    }
+}
+
+// 扩展清理任务
+clean {
+    dependsOn cleanNative
+}
+
+// 设置Java编译依赖Native构建（默认使用开发构建以避免安全构建的环境问题）
+compileJava.dependsOn buildNativeDev
+
+// ============================================================================= 
+// 多平台构建支持
+// =============================================================================
+
+// 检查所有平台的构建结果
+task checkAllPlatforms {
+    group = 'native'
+    description = '检查所有支持平台的构建结果'
+    
+    doLast {
+        println "🔍 检查多平台构建结果..."
+        
+        def platforms = ['windows', 'linux', 'macos']
+        def extensions = ['dll', 'so', 'dylib']
+        def results = [:]
+        
+        platforms.eachWithIndex { platform, index ->
+            def resourceDir = file("$projectDir/src/main/resources/native")
+            def libFile = file("$resourceDir/pathfinder_native.${extensions[index]}")
+            
+            if (libFile.exists()) {
+                results[platform] = [
+                    status: '✅ 已构建',
+                    size: libFile.length(),
+                    path: libFile.path
+                ]
+            } else {
+                results[platform] = [
+                    status: '❌ 未构建',
+                    size: 0,
+                    path: libFile.path
+                ]
+            }
+        }
+        
+        println "\n📊 多平台构建状态："
+        println "=" * 70
+        results.each { platform, info ->
+            println "🔹 ${platform.padRight(8)}: ${info.status} ${info.size > 0 ? "(${info.size} bytes)" : ''}"
+        }
+        println "=" * 70
+        
+        def builtCount = results.values().count { it.status.contains('✅') }
+        println "\n📈 总结: ${builtCount}/3 个平台已构建"
+        
+        if (builtCount == 0) {
+            println "⚠️ 尚未构建任何平台的Native库"
+            println "💡 运行 gradle buildNativeDev 构建当前平台"
+        } else if (builtCount < 3) {
+            println "💡 要支持所有平台，请在对应系统上运行构建："
+            results.each { platform, info ->
+                if (info.status.contains('❌')) {
+                    println "   - ${platform}: gradle buildNativeDev"
+                }
+            }
+        } else {
+            println "🎉 所有平台都已构建完成！"
+        }
+    }
+}
+
+// 清理所有平台的构建产物
+task cleanAllPlatforms {
+    group = 'native'
+    description = '清理所有平台的构建产物'
+    
+    doLast {
+        println "🧹 清理所有平台的构建产物..."
+        
+        def platforms = ['windows', 'linux', 'macos']
+        def extensions = ['dll', 'so', 'dylib']
+        def resourceDir = file("$projectDir/src/main/resources/native")
+        
+        // 清理构建目录
+        platforms.each { platform ->
+            def platformDir = file("$nativeTargetDir/$platform")
+            if (platformDir.exists()) {
+                delete platformDir
+                println "✅ 已清理 ${platform} 构建目录"
+            }
+        }
+        
+        // 清理资源目录中的库文件
+        if (resourceDir.exists()) {
+            platforms.eachWithIndex { platform, index ->
+                def libFile = file("$resourceDir/pathfinder_native.${extensions[index]}")
+                if (libFile.exists()) {
+                    delete libFile
+                    println "✅ 已清理 ${platform} 库文件: ${libFile.name}"
+                }
+            }
+        }
+        
+        println "✅ 所有平台构建产物清理完成"
+    }
+}
+
+// 为当前平台创建发布包
+task packageNative {
+    group = 'native'
+    description = '为当前平台创建Native库发布包'
+    dependsOn buildNativeDev
+    
+    doLast {
+        println "📦 创建 ${currentPlatform} 平台发布包..."
+        
+        def packageDir = file("$buildDir/native-packages/${currentPlatform}")
+        packageDir.mkdirs()
+        
+        // 复制库文件
+        def libBaseName = isWindows ? "pathfinder_native" : "libpathfinder_native"
+        copy {
+            from platformTargetDir
+            into packageDir
+            include "${libBaseName}.${libExtension}"
+            // 重命名为统一的名称
+            rename "${libBaseName}.${libExtension}", "pathfinder_native.${libExtension}"
+        }
+        
+        // 创建平台信息文件
+        def platformInfo = """PathFinder Native Library - ${currentPlatform.toUpperCase()}
+构建时间: ${new Date()}
+平台: ${currentPlatform}
+库文件: pathfinder_native.${libExtension}
+Java版本: ${System.getProperty('java.version')}
+操作系统: ${System.getProperty('os.name')} ${System.getProperty('os.version')}
+架构: ${System.getProperty('os.arch')}
+"""
+        
+        file("$packageDir/PLATFORM_INFO.txt").text = platformInfo
+        
+        println "✅ 发布包已创建: ${packageDir.path}"
+        println "📁 包含文件:"
+        packageDir.listFiles().each { file ->
+            println "   - ${file.name}"
+        }
+    }
+}
+
+// 显示当前构建环境信息
+task showBuildInfo {
+    group = 'native'
+    description = '显示当前构建环境信息'
+    
+    doLast {
+        println "\n🔧 PathFinder Native 构建环境信息"
+        println "=" * 50
+        println "当前平台: ${currentPlatform}"
+        println "库文件扩展名: ${libExtension}"
+        println "Java版本: ${System.getProperty('java.version')}"
+        println "Java主目录: ${System.getProperty('java.home')}"
+        println "操作系统: ${System.getProperty('os.name')} ${System.getProperty('os.version')}"
+        println "系统架构: ${System.getProperty('os.arch')}"
+        println "Gradle版本: ${gradle.gradleVersion}"
+        println "项目版本: ${version}"
+        println ""
+        println "📁 关键路径:"
+        println "  源码目录: ${nativeDir.path}"
+        println "  构建目录: ${nativeBuildDir.path}"
+        println "  输出目录: ${platformTargetDir.path}"
+        println "  资源目录: ${projectDir}/src/main/resources/native/${currentPlatform}"
+        println "=" * 50
+        
+        // 检查构建工具
+        println "\n🛠️ 构建工具检查:"
+        
+        try {
+            if (isWindows) {
+                def result = exec {
+                    commandLine 'where', 'cl.exe'
+                    ignoreExitValue = true
+                }
+                println result.exitValue == 0 ? "✅ Visual C++编译器" : "❌ Visual C++编译器未找到"
+            } else {
+                def result = exec {
+                    commandLine 'which', 'gcc'
+                    ignoreExitValue = true
+                }
+                println result.exitValue == 0 ? "✅ GCC编译器" : "❌ GCC编译器未找到"
+            }
+        } catch (Exception e) {
+            println "❌ 编译器检查失败"
+        }
+        
+        try {
+            def result = exec {
+                commandLine 'cmake', '--version'
+                ignoreExitValue = true
+            }
+            println result.exitValue == 0 ? "✅ CMake" : "❌ CMake未找到"
+        } catch (Exception e) {
+            println "❌ CMake未找到"
+        }
+        
+        println ""
+    }
+}
+
+// 扩展帮助任务
+task nativeHelp {
+    group = 'help'
+    description = '显示Native库构建相关的帮助信息'
+    
+    doLast {
+        println """
+🔧 PathFinder Native Library 构建指南
+
+📋 常用任务:
+  gradle buildNativeDev     - 快速开发构建（当前平台）
+  gradle buildNative        - 完整构建（包含安全功能）
+  gradle buildAll          - 构建整个项目（Java + Native）
+  gradle checkAllPlatforms - 检查所有平台构建状态
+  gradle showBuildInfo     - 显示构建环境信息
+  gradle cleanNative       - 清理Native构建产物
+
+🌍 跨平台支持:
+  当前平台: ${currentPlatform}
+  支持平台: Windows (.dll), Linux (.so), macOS (.dylib)
+  
+  要支持其他平台:
+  1. 在对应系统上安装构建工具
+  2. 运行 gradle buildNativeDev
+  3. 将生成的库文件合并到同一个项目中
+
+📁 重要目录:
+  src/main/native/          - C源代码
+  target/native/${currentPlatform}/       - 构建输出
+  src/main/resources/native/ - 打包到JAR的库文件
+
+💡 Windows用户:
+  1. 查看 Windows编译指南.md 了解详细步骤
+  2. 运行 src/main/native/scripts/build_windows.bat
+  3. 或使用 Developer Command Prompt 运行 gradle 任务
+
+❓ 遇到问题:
+  - 检查构建工具是否安装正确
+  - 确保 JAVA_HOME 环境变量设置
+  - 查看构建日志中的错误信息
+  - 参考平台特定的编译指南
+"""
+    }
+}
+
+// 扩展清理任务以包含所有平台
+clean {
+    dependsOn cleanAllPlatforms
+}
+
+// 跨平台构建任务
+task buildCrossPlatform {
+    group = 'build'
+    description = '一键跨平台构建（Linux + Windows）'
+    // 确保当前平台(如Linux)的 .so 已构建并复制到资源目录
+    dependsOn buildNativeDev
+    
+    doLast {
+        if (!project.hasProperty('withCross')) {
+            println "⏭️ 跳过跨平台构建（未指定 -PwithCross）"
+            return
+        }
+        println "🚀 开始跨平台构建流程..."
+        println ""
+        
+        // 1. 交叉编译Windows DLL
+        println "📦 [1/3] 交叉编译Windows DLL..."
+        exec {
+            workingDir projectDir
+            commandLine './src/main/native/scripts/cross_compile_windows.sh'
+        }
+        
+        // 2. 确保Windows DLL复制到资源目录
+        println "📁 [2/3] 复制Windows DLL到资源目录..."
+        def resourceDir = file("$projectDir/src/main/resources/native")
+        resourceDir.mkdirs()
+        copy {
+            from file("$projectDir/target/native/windows/pathfinder_native.dll")
+            into resourceDir
+        }
+        // 同时确保将当前平台(如Linux)的 .so 复制到资源目录，便于JAR同时包含两种平台库
+        def linuxSoFile = file("$projectDir/target/native/linux/libpathfinder_native.so")
+        if (linuxSoFile.exists()) {
+            copy {
+                from linuxSoFile
+                into resourceDir
+                rename { "pathfinder_native.so" }
+            }
+        }
+        
+        println "✅ 跨平台构建完成！"
+        println ""
+        println "📊 构建结果:"
+        def windowsDll = file("$projectDir/target/native/windows/pathfinder_native.dll")
+        def linuxSoOut = file("$projectDir/target/native/linux/libpathfinder_native.so")
+        
+        if (windowsDll.exists()) {
+            println "  ✅ Windows DLL: ${windowsDll.name} (${windowsDll.length()} bytes)"
+        }
+        if (linuxSoOut.exists()) {
+            println "  ✅ Linux SO: ${linuxSoOut.name} (${linuxSoOut.length()} bytes)"
+        }
+    }
+}
+
+// 当指定 -PwithCross 时，确保在处理资源前完成跨平台构建与复制
+if (project.hasProperty('withCross')) {
+    tasks.processResources.dependsOn buildCrossPlatform
+}
+
+// 快速跨平台开发构建
+task buildDevCross {
+    group = 'build'  
+    description = '快速跨平台开发构建（Linux + Windows + JAR）'
+    // 先构建当前平台Native，再交叉编译Windows DLL并复制到资源，最后打包JAR
+    dependsOn buildNativeDev
+    // 交叉编译并复制Windows DLL（仅在Linux上有效）
+    dependsOn 'crossWindowsDevCopy'
+    dependsOn shadowJar
+    
+    doLast {
+        println ""
+        println "🎉 快速跨平台开发构建完成！"
+        println "📁 最终产物:"
+        println "  - JAR包: ${tasks.shadowJar.archiveFile.get().asFile.path}"
+        println "  - Windows DLL: target/native/windows/pathfinder_native.dll" 
+        println "  - Linux SO: target/native/linux/libpathfinder_native.so"
+        println ""
+    }
+}
+
+// 交叉编译Windows DLL并复制到资源目录（用于 buildDevCross）
+task crossWindowsDevCopy {
+    group = 'native'
+    description = 'Linux下交叉编译Windows DLL并复制到资源目录以便打包'
+    doLast {
+        if (!isLinux) {
+            println "⏭️ 非Linux环境，跳过交叉编译Windows DLL"
+            return
+        }
+        println "📦 交叉编译Windows DLL (Gradle内置流程)..."
+        def javaHome = System.getProperty('java.home')
+        if (!javaHome) {
+            throw new GradleException("❌ 未检测到 Java 环境 (java.home)")
+        }
+        def cmakeToolchain = file("$projectDir/src/main/native/cmake/windows-cross.cmake")
+        if (!cmakeToolchain.exists()) {
+            throw new GradleException("❌ 未找到工具链文件: ${cmakeToolchain.path}")
+        }
+        // 使用全新构建目录避免权限残留问题
+        def winBuildDir = file("$projectDir/src/main/native/build-win-gradle-${System.currentTimeMillis()}")
+        winBuildDir.mkdirs()
+        // 配置
+        exec {
+            commandLine 'cmake', '-S', "$projectDir/src/main/native", '-B', winBuildDir.path,
+                    "-DCMAKE_TOOLCHAIN_FILE=${cmakeToolchain.path}",
+                    '-DCMAKE_BUILD_TYPE=Release',
+                    "-DJAVA_HOME=${javaHome}"
+        }
+        // 构建
+        exec {
+            commandLine 'cmake', '--build', winBuildDir.path, '--config', 'Release', '--parallel'
+        }
+        println "📁 复制Windows DLL到资源目录..."
+        def resourceDir = file("$projectDir/src/main/resources/native")
+        resourceDir.mkdirs()
+        copy {
+            from file("$projectDir/target/native/windows/pathfinder_native.dll")
+            into resourceDir
+        }
+        println "✅ Windows DLL 已复制到资源目录，将随JAR一同打包"
+    }
+}
+

@@ -1,0 +1,3 @@
+-cp
+src/main/java:lib/*
+src/main/java/org/momu/tOCplugin/MasterListener.java
