@@ -1,0 +1,9 @@
+#ifndef NATIVE_CONFIG_H
+#define NATIVE_CONFIG_H
+
+#ifndef REQUIRE_NETWORK_VALIDATION
+#define REQUIRE_NETWORK_VALIDATION 1
+#endif
+
+#endif
+
