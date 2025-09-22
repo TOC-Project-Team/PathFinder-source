@@ -570,31 +570,57 @@ static bool register_event_listeners(JNIEnv* env, jobject plugin_instance) {
     }
     
     // 注册MasterListener
-    jclass master_listener_class = (*env)->FindClass(env, "org/momu/tOCplugin/MasterListener");
+    jclass master_listener_class = (*env)->FindClass(env, "org/momu/tOCplugin/listener/MasterListener");
     if (master_listener_class) {
         jmethodID master_constructor = (*env)->GetMethodID(env, master_listener_class, "<init>", "()V");
         if (master_constructor) {
             jobject master_listener_obj = (*env)->NewObject(env, master_listener_class, master_constructor);
             if (master_listener_obj) {
                 (*env)->CallVoidMethod(env, plugin_manager_obj, register_events_method, master_listener_obj, plugin_instance);
+                if ((*env)->ExceptionCheck(env)) {
+                    printf("[PathFinder] ⚠️ Exception during MasterListener registration, skipping\n");
+                    (*env)->ExceptionClear(env);
+                }
                 (*env)->DeleteLocalRef(env, master_listener_obj);
+            } else if ((*env)->ExceptionCheck(env)) {
+                printf("[PathFinder] ⚠️ Exception creating MasterListener instance, skipping\n");
+                (*env)->ExceptionClear(env);
             }
+        } else if ((*env)->ExceptionCheck(env)) {
+            printf("[PathFinder] ⚠️ MasterListener constructor not found, skipping\n");
+            (*env)->ExceptionClear(env);
         }
         (*env)->DeleteLocalRef(env, master_listener_class);
+    } else if ((*env)->ExceptionCheck(env)) {
+        printf("[PathFinder] ℹ️ MasterListener class not found, skipping\n");
+        (*env)->ExceptionClear(env);
     }
     
     // 注册PlayerMoveListener
-    jclass player_move_listener_class = (*env)->FindClass(env, "org/momu/tOCplugin/PlayerMoveListener");
+    jclass player_move_listener_class = (*env)->FindClass(env, "org/momu/tOCplugin/listener/PlayerMoveListener");
     if (player_move_listener_class) {
         jmethodID move_constructor = (*env)->GetMethodID(env, player_move_listener_class, "<init>", "(Lorg/momu/tOCplugin/TOCpluginNative;)V");
         if (move_constructor) {
             jobject player_move_listener_obj = (*env)->NewObject(env, player_move_listener_class, move_constructor, plugin_instance);
             if (player_move_listener_obj) {
                 (*env)->CallVoidMethod(env, plugin_manager_obj, register_events_method, player_move_listener_obj, plugin_instance);
+                if ((*env)->ExceptionCheck(env)) {
+                    printf("[PathFinder] ⚠️ Exception during PlayerMoveListener registration, skipping\n");
+                    (*env)->ExceptionClear(env);
+                }
                 (*env)->DeleteLocalRef(env, player_move_listener_obj);
+            } else if ((*env)->ExceptionCheck(env)) {
+                printf("[PathFinder] ⚠️ Exception creating PlayerMoveListener instance, skipping\n");
+                (*env)->ExceptionClear(env);
             }
+        } else if ((*env)->ExceptionCheck(env)) {
+            printf("[PathFinder] ⚠️ PlayerMoveListener constructor not found, skipping\n");
+            (*env)->ExceptionClear(env);
         }
         (*env)->DeleteLocalRef(env, player_move_listener_class);
+    } else if ((*env)->ExceptionCheck(env)) {
+        printf("[PathFinder] ℹ️ PlayerMoveListener class not found, skipping\n");
+        (*env)->ExceptionClear(env);
     }
     
     // 清理引用
