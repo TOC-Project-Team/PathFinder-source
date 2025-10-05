@@ -1,6 +1,0 @@
-language: "en-US"
-# More language files are available in the lang folder
-
-# 当目标玩家处于隐身状态时是否允许被导航
-# false: 禁止导航到隐身玩家
-allow_navigation_to_invisible: false
