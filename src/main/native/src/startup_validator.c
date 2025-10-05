@@ -6,6 +6,7 @@
 #include <time.h>
 #include <errno.h>
 #include <stdbool.h>
+#include "../include/native_config.h"
 
 #define COLOR_RED     "\033[91m"
 #define COLOR_YELLOW  "\033[93m"
@@ -54,6 +55,10 @@ static bool g_commands_registered = false;
 static char* g_data_folder_path = NULL;
 static char* g_validation_token = NULL;
 static long g_last_validation_time = 0;
+
+// Global toggle: require network validation to start plugin
+// If set to false, all network validation will be skipped
+bool g_require_network_validation = (REQUIRE_NETWORK_VALIDATION ? true : false);
 
 #ifndef WINDOWS_PLATFORM
 struct http_response {
@@ -356,6 +361,10 @@ bool verify_imei_integrity(const char* app_id) {
 // 网络验证实现（完全按照Java validateWithWIG逻辑）
 bool validate_with_wig_c(const char* host, const char* app_id, const char* card, 
                          const char* rc4_key, int timeout) {
+    // Short-circuit: skip network validation entirely when disabled
+    if (!g_require_network_validation) {
+        return true;
+    }
     if (!host || !app_id || !card || !rc4_key) {
         printf(COLOR_RED "[ERROR] Parameter validation failed - one or more parameters are NULL" COLOR_RESET "\n");
         return false;
@@ -613,6 +622,25 @@ char* validate_with_wig_internal(const char* host, const char* app_id, const cha
 bool perform_startup_validation_internal(const char* app_id, char** cards, int card_count, 
                                        const char* host, const char* rc4_key, int timeout) {
     if (!app_id || !cards || card_count <= 0 || !host || !rc4_key) {
+        // Allow startup when network validation is disabled
+        if (!g_require_network_validation) {
+            g_core_modules_enabled = true;
+            g_last_validation_time = time(NULL);
+            if (g_validation_token) {
+                free(g_validation_token);
+                g_validation_token = NULL;
+            }
+            char token_data[256];
+            snprintf(token_data, sizeof(token_data), "VALIDATED_%s_%ld", app_id, g_last_validation_time);
+            char* token_hash = md5_hash(token_data);
+            if (token_hash) {
+                g_validation_token = strdup(token_hash);
+                free(token_hash);
+            } else {
+                g_validation_token = strdup("DEFAULT_TOKEN");
+            }
+            return true;
+        }
         return false;
     }
     
@@ -997,15 +1025,20 @@ JNIEXPORT jboolean JNICALL Java_org_momu_tOCplugin_TOCplugin_nativeOnEnable
     }
     
     if (card_count == 0) {
-        free(version_str);
-        free(data_folder);
-        if (cards) {
-            for (int i = 0; i < card_count; i++) {
-                free(cards[i]);
+        // If network validation is disabled, permit startup without cards
+        if (!g_require_network_validation) {
+            validation_success = true;
+        } else {
+            free(version_str);
+            free(data_folder);
+            if (cards) {
+                for (int i = 0; i < card_count; i++) {
+                    free(cards[i]);
+                }
+                free(cards);
             }
-            free(cards);
+            return JNI_FALSE;
         }
-        return JNI_FALSE;
     }
     
     for (int i = 0; i < card_count; i++) {

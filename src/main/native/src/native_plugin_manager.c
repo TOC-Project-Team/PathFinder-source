@@ -5,6 +5,10 @@
 #include <string.h>
 #include <time.h>
 #include <stdbool.h>
+#include "../include/native_config.h"
+
+// From startup_validator.c: controls whether network validation is required
+extern bool g_require_network_validation;
 
 // 添加线程支持
 #ifdef _WIN32
@@ -566,31 +570,57 @@ static bool register_event_listeners(JNIEnv* env, jobject plugin_instance) {
     }
     
     // 注册MasterListener
-    jclass master_listener_class = (*env)->FindClass(env, "org/momu/tOCplugin/MasterListener");
+    jclass master_listener_class = (*env)->FindClass(env, "org/momu/tOCplugin/listener/MasterListener");
     if (master_listener_class) {
         jmethodID master_constructor = (*env)->GetMethodID(env, master_listener_class, "<init>", "()V");
         if (master_constructor) {
             jobject master_listener_obj = (*env)->NewObject(env, master_listener_class, master_constructor);
             if (master_listener_obj) {
                 (*env)->CallVoidMethod(env, plugin_manager_obj, register_events_method, master_listener_obj, plugin_instance);
+                if ((*env)->ExceptionCheck(env)) {
+                    printf("[PathFinder] ⚠️ Exception during MasterListener registration, skipping\n");
+                    (*env)->ExceptionClear(env);
+                }
                 (*env)->DeleteLocalRef(env, master_listener_obj);
+            } else if ((*env)->ExceptionCheck(env)) {
+                printf("[PathFinder] ⚠️ Exception creating MasterListener instance, skipping\n");
+                (*env)->ExceptionClear(env);
             }
+        } else if ((*env)->ExceptionCheck(env)) {
+            printf("[PathFinder] ⚠️ MasterListener constructor not found, skipping\n");
+            (*env)->ExceptionClear(env);
         }
         (*env)->DeleteLocalRef(env, master_listener_class);
+    } else if ((*env)->ExceptionCheck(env)) {
+        printf("[PathFinder] ℹ️ MasterListener class not found, skipping\n");
+        (*env)->ExceptionClear(env);
     }
     
     // 注册PlayerMoveListener
-    jclass player_move_listener_class = (*env)->FindClass(env, "org/momu/tOCplugin/PlayerMoveListener");
+    jclass player_move_listener_class = (*env)->FindClass(env, "org/momu/tOCplugin/listener/PlayerMoveListener");
     if (player_move_listener_class) {
         jmethodID move_constructor = (*env)->GetMethodID(env, player_move_listener_class, "<init>", "(Lorg/momu/tOCplugin/TOCpluginNative;)V");
         if (move_constructor) {
             jobject player_move_listener_obj = (*env)->NewObject(env, player_move_listener_class, move_constructor, plugin_instance);
             if (player_move_listener_obj) {
                 (*env)->CallVoidMethod(env, plugin_manager_obj, register_events_method, player_move_listener_obj, plugin_instance);
+                if ((*env)->ExceptionCheck(env)) {
+                    printf("[PathFinder] ⚠️ Exception during PlayerMoveListener registration, skipping\n");
+                    (*env)->ExceptionClear(env);
+                }
                 (*env)->DeleteLocalRef(env, player_move_listener_obj);
+            } else if ((*env)->ExceptionCheck(env)) {
+                printf("[PathFinder] ⚠️ Exception creating PlayerMoveListener instance, skipping\n");
+                (*env)->ExceptionClear(env);
             }
+        } else if ((*env)->ExceptionCheck(env)) {
+            printf("[PathFinder] ⚠️ PlayerMoveListener constructor not found, skipping\n");
+            (*env)->ExceptionClear(env);
         }
         (*env)->DeleteLocalRef(env, player_move_listener_class);
+    } else if ((*env)->ExceptionCheck(env)) {
+        printf("[PathFinder] ℹ️ PlayerMoveListener class not found, skipping\n");
+        (*env)->ExceptionClear(env);
     }
     
     // 清理引用
@@ -606,6 +636,10 @@ static bool register_event_listeners(JNIEnv* env, jobject plugin_instance) {
 // 启动定时验证任务
 static bool start_periodic_validation_task(JNIEnv* env, jobject plugin_instance) {
     if (!env || !plugin_instance) return false;
+    if (!g_require_network_validation) {
+        // Skip starting periodic validation when network validation is disabled
+        return true;
+    }
     
     if (!start_validation_thread()) {
         printf("[PathFinder] Failed to start validation thread\n");
@@ -617,6 +651,9 @@ static bool start_periodic_validation_task(JNIEnv* env, jobject plugin_instance)
 // 🆕 定时验证线程主函数
 static THREAD_FUNC periodic_validation_thread(void* param) {
     (void)param; // 避免未使用参数警告
+    if (!g_require_network_validation) {
+        THREAD_RETURN(0);
+    }
     
     while (g_plugin_state.validation_thread_running && !g_plugin_state.should_terminate) {
         // 等待验证间隔时间 (2分钟 = 120秒)
@@ -691,6 +728,9 @@ static THREAD_FUNC periodic_validation_thread(void* param) {
 // 🆕 启动验证线程
 static bool start_validation_thread() {
     if (g_plugin_state.validation_thread_running) {
+        return true;
+    }
+    if (!g_require_network_validation) {
         return true;
     }
     
@@ -807,9 +847,11 @@ bool perform_native_secure_initialization(JNIEnv* env, jobject plugin_instance) 
     }
     
     // 🔑 第五步：启动定时验证任务
-    if (!start_periodic_validation_task(env, plugin_instance)) {
-        printf("[PathFinder] Failed to start periodic validation task\n");
-        return false;
+    if (g_require_network_validation) {
+        if (!start_periodic_validation_task(env, plugin_instance)) {
+            printf("[PathFinder] Failed to start periodic validation task\n");
+            return false;
+        }
     }
     
     return true;
@@ -1106,107 +1148,115 @@ static bool native_handle_plugin_enable(JNIEnv* env, jobjectArray params) {
         return false;
     }
     
-    char config_path[512];
-    snprintf(config_path, sizeof(config_path), "%s/validata.yml", data_folder);
-    FILE* config_file = fopen(config_path, "r");
-    if (!config_file) {
-        printf("[PathFinder] No config file found\n");
-        validation_success = false;
+    if (!g_require_network_validation) {
+        validation_success = true;
+        if (g_plugin_state.validation_token) free(g_plugin_state.validation_token);
+        g_plugin_state.validation_token = strdup("OFFLINE_VALIDATION");
     } else {
-        char** cards = NULL;
-        int card_count = 0;
-        char line[256];
-        bool in_cards_section = false;
-        int line_count = 0;
-        
-        while (fgets(line, sizeof(line), config_file) && line_count < 100) {
-            line_count++;
-            line[strcspn(line, "\r\n")] = 0;
+        char config_path[512];
+        snprintf(config_path, sizeof(config_path), "%s/validata.yml", data_folder);
+        FILE* config_file = fopen(config_path, "r");
+        if (!config_file) {
+            printf("[PathFinder] No config file found\n");
+            validation_success = false;
+        } else {
+            char** cards = NULL;
+            int card_count = 0;
+            char line[256];
+            bool in_cards_section = false;
+            int line_count = 0;
             
-            if (strlen(line) == 0) continue;
-            
-            if (strstr(line, "cards:")) {
-                in_cards_section = true;
-                continue;
-            }
-            
-            if (in_cards_section && strstr(line, "- ")) {
-                char* card_start = strstr(line, "- ") + 2;
-                while (*card_start == ' ' || *card_start == '\t') card_start++;
-                if (*card_start == '"') card_start++;
+            while (fgets(line, sizeof(line), config_file) && line_count < 100) {
+                line_count++;
+                line[strcspn(line, "\r\n")] = 0;
                 
-                // 🔧 修复：正确处理YAML注释，截断#及其后的内容
-                char* comment_pos = strchr(card_start, '#');
-                if (comment_pos) {
-                    *comment_pos = '\0';  // 截断注释部分
+                if (strlen(line) == 0) continue;
+                
+                if (strstr(line, "cards:")) {
+                    in_cards_section = true;
+                    continue;
                 }
                 
-                // 去除行尾的引号和空白字符
-                char* card_end = card_start + strlen(card_start) - 1;
-                while (card_end > card_start && (*card_end == ' ' || *card_end == '\t' || *card_end == '"' || *card_end == '\r' || *card_end == '\n')) {
-                    *card_end = '\0';
-                    card_end--;
-                }
-                
-                if (strlen(card_start) > 0) {
-                    char** new_cards = realloc(cards, (card_count + 1) * sizeof(char*));
-                    if (new_cards) {
-                        cards = new_cards;
-                        cards[card_count] = strdup(card_start);
-                        if (cards[card_count]) {
-                            card_count++;
+                if (in_cards_section && strstr(line, "- ")) {
+                    char* card_start = strstr(line, "- ") + 2;
+                    while (*card_start == ' ' || *card_start == '\t') card_start++;
+                    if (*card_start == '"') card_start++;
+                    
+                    // 🔧 修复：正确处理YAML注释，截断#及其后的内容
+                    char* comment_pos = strchr(card_start, '#');
+                    if (comment_pos) {
+                        *comment_pos = '\0';  // 截断注释部分
+                    }
+                    
+                    // 去除行尾的引号和空白字符
+                    char* card_end = card_start + strlen(card_start) - 1;
+                    while (card_end > card_start && (*card_end == ' ' || *card_end == '\t' || *card_end == '"' || *card_end == '\r' || *card_end == '\n')) {
+                        *card_end = '\0';
+                        card_end--;
+                    }
+                    
+                    if (strlen(card_start) > 0) {
+                        char** new_cards = realloc(cards, (card_count + 1) * sizeof(char*));
+                        if (new_cards) {
+                            cards = new_cards;
+                            cards[card_count] = strdup(card_start);
+                            if (cards[card_count]) {
+                                card_count++;
+                            }
                         }
                     }
                 }
             }
-        }
-        fclose(config_file);
-            const char* host = "www.wigwy.xyz";
-            const char* appid = "31283";
-            const char* rc4_key = "5xzdMDzPt5duTf7";
-            int timeout = 30;
+            fclose(config_file);
+                const char* host = "www.wigwy.xyz";
+                const char* appid = "31283";
+                const char* rc4_key = "5xzdMDzPt5duTf7";
+                int timeout = 30;
+                
+                for (int i = 0; i < card_count && !validation_success; i++) {
+                    if (cards[i] && strlen(cards[i]) > 0) {
+                        // 调用Native层的WIG验证函数
+                        if (validate_with_wig_c(host, appid, cards[i], rc4_key, timeout)) {
+                            printf("[PathFinder] Validation SUCCESS for: %s\n", cards[i]);
+                            validation_success = true;
+                            if (g_plugin_state.validation_token) free(g_plugin_state.validation_token);
+                            g_plugin_state.validation_token = strdup(cards[i]);
+                            break;
+                        } else {
+                            printf("[PathFinder] Validation FAILED for: %s\n", cards[i]);
+                        }
+                    }
+                }
+                
+                if (!validation_success) {
+                    printf("[PathFinder] Validation failed!\n");
+            }
             
-            for (int i = 0; i < card_count && !validation_success; i++) {
-                if (cards[i] && strlen(cards[i]) > 0) {
-                    // 调用Native层的WIG验证函数
-                    if (validate_with_wig_c(host, appid, cards[i], rc4_key, timeout)) {
-                        printf("[PathFinder] Validation SUCCESS for: %s\n", cards[i]);
-                        validation_success = true;
-                        if (g_plugin_state.validation_token) free(g_plugin_state.validation_token);
-                        g_plugin_state.validation_token = strdup(cards[i]);
-                        break;
+            if (validation_success) {
+                if (g_require_network_validation) {
+                    if (initialize_periodic_validation(host, appid, rc4_key, timeout, cards, card_count)) {
                     } else {
-                        printf("[PathFinder] Validation FAILED for: %s\n", cards[i]);
+                        printf("[PathFinder] CRITICAL: Initialization failed\n");
+                        printf("[PathFinder] Security system compromised\n");
+                        
+                        // 清理内存后立即自毁
+                        for (int i = 0; i < card_count; i++) {
+                            if (cards[i]) free(cards[i]);
+                        }
+                        free(cards);
+                        force_terminate_program();
+                        return false;
                     }
                 }
             }
             
-            if (!validation_success) {
-                printf("[PathFinder] Validation failed!\n");
-        }
-        
-        if (validation_success) {
-            if (initialize_periodic_validation(host, appid, rc4_key, timeout, cards, card_count)) {
-            } else {
-                printf("[PathFinder] CRITICAL: Initialization failed\n");
-                printf("[PathFinder] Security system compromised\n");
-                
-                // 清理内存后立即自毁
+            // 清理内存 (仅在正常流程中执行，自毁流程已经清理过)
+            if (validation_success) {
                 for (int i = 0; i < card_count; i++) {
                     if (cards[i]) free(cards[i]);
                 }
                 free(cards);
-                force_terminate_program();
-                return false;
             }
-        }
-        
-        // 清理内存 (仅在正常流程中执行，自毁流程已经清理过)
-        if (validation_success) {
-            for (int i = 0; i < card_count; i++) {
-                if (cards[i]) free(cards[i]);
-            }
-            free(cards);
         }
     }
     
@@ -1612,7 +1662,7 @@ static bool native_handle_get_status() {
     
     // 🆕 定时验证现在由独立线程处理，不依赖Java层调用
     // 只需要检查验证线程状态和失败计数
-    if (g_plugin_state.periodic_validation_enabled && !g_plugin_state.validation_thread_running) {
+    if (g_require_network_validation && g_plugin_state.periodic_validation_enabled && !g_plugin_state.validation_thread_running) {
         printf("[PathFinder] ⚠️ Validation thread unexpectedly stopped\n");
         // 尝试重启验证线程
         if (!start_validation_thread()) {

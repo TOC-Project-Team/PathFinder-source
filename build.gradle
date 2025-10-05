@@ -8,7 +8,7 @@ plugins {
 buildDir = file(".gradle-build")
 
 group = 'org.momu.tocplugin'
-version = '1.5.0'
+version = '1.5.1'
 
 repositories {
     mavenCentral()
@@ -791,7 +791,8 @@ task buildCrossPlatform {
         println "📦 [1/3] 交叉编译Windows DLL..."
         exec {
             workingDir projectDir
-            commandLine './src/main/native/scripts/cross_compile_windows.sh'
+            // 使用 bash 调用脚本，避免可执行权限导致的启动失败
+            commandLine 'bash', "${projectDir}/src/main/native/scripts/cross_compile_windows.sh"
         }
         
         // 2. 确保Windows DLL复制到资源目录

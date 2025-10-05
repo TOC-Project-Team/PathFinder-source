@@ -3,5 +3,5 @@
     "remote.autoForwardPortsFallback": 0,
     "java.configuration.updateBuildConfiguration": "automatic",
     "editor.cursorBlinking": "blink",
-    "cmake.sourceDirectory": "/home/momu/IdeaProjects/PathFinder/src/main/native"
+    "cmake.sourceDirectory": "/root/PathFinder-source/src/main/native"
 }
