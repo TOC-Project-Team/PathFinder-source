@@ -97,6 +97,13 @@ public final class TOCpluginNative extends JavaPlugin implements Listener {
         return String.format(defaultMessage, args);
     }
 
+    /**
+     * 获取指定玩家的本地化消息。
+     * @param playerName 玩家名
+     * @param key 消息键
+     * @param defaultMessage 默认消息
+     * @return 本地化消息
+     */
     public static String getTranslatedMessageForPlayer(String playerName, String key, String defaultMessage) {
         try {
             if (LanguageManager.getInstance() != null && playerName != null) {
@@ -106,10 +113,16 @@ public final class TOCpluginNative extends JavaPlugin implements Listener {
                 }
             }
         } catch (Exception e) {
+            org.bukkit.Bukkit.getLogger().warning("Error getting translated message for player: " + e.getMessage());
         }
         return getTranslatedMessage(key, defaultMessage);
     }
 
+    /**
+     * 向指定目标发送消息（玩家或控制台）。
+     * @param target 目标玩家名或"CONSOLE"
+     * @param message 消息内容
+     */
     public static void sendMessageFromNative(String target, String message) {
         try {
             TOCpluginNative instance = getInstance();
@@ -117,7 +130,6 @@ public final class TOCpluginNative extends JavaPlugin implements Listener {
                 org.bukkit.Bukkit.getLogger().info("[PathFinder] " + message);
                 return;
             }
-
             if ("CONSOLE".equals(target)) {
                 String cleanMessage = convertMinecraftColorsToAnsi(message);
                 instance.getLogger().info(cleanMessage);
@@ -135,6 +147,13 @@ public final class TOCpluginNative extends JavaPlugin implements Listener {
         }
     }
 
+    /**
+     * 处理来自Native层的子命令。
+     * @param senderName 发送者名
+     * @param args 命令参数
+     * @param senderType 发送者类型（CONSOLE/PLAYER）
+     * @param token 验证令牌
+     */
     @SuppressWarnings("unused")
     public static void handleSubcommandFromNative(String senderName, String[] args, String senderType, String token) {
         try {
@@ -147,7 +166,6 @@ public final class TOCpluginNative extends JavaPlugin implements Listener {
                         "Plugin instance not available for subcommand with args: " + java.util.Arrays.toString(args));
                 return;
             }
-
             org.bukkit.command.CommandSender sender;
             if ("CONSOLE".equals(senderType)) {
                 sender = org.bukkit.Bukkit.getConsoleSender();
@@ -160,16 +178,13 @@ public final class TOCpluginNative extends JavaPlugin implements Listener {
                 }
                 sender = player;
             }
-
             MainCommand mainCommand = new MainCommand(instance);
-
             org.bukkit.command.Command command = instance.getCommand("toc");
             if (command != null) {
                 mainCommand.onCommand(sender, command, "toc", args);
             } else {
                 instance.getLogger().severe("Command 'toc' not found for subcommand handling");
             }
-
         } catch (Exception e) {
             org.bukkit.Bukkit.getLogger().severe(
                     "Error handling subcommand with args " + java.util.Arrays.toString(args) + ": " + e.getMessage());
@@ -213,42 +228,37 @@ public final class TOCpluginNative extends JavaPlugin implements Listener {
         }
     }
 
+    /**
+     * 插件启用时的初始化逻辑。
+     */
     @Override
     public void onEnable() {
         instance = this;
-
         try {
             if (!getDataFolder().exists()) {
                 getDataFolder().mkdirs();
             }
-
             saveDefaultConfig();
-
             try {
                 if (!new File(getDataFolder(), "validata.yml").exists()) {
                     saveResource("validata.yml", false);
                     getLogger().info("📋 Please replace placeholder cards with your real license cards");
                 }
-
                 if (!new File(getDataFolder(), "pathfinder.yml").exists()) {
                     saveResource("pathfinder.yml", false);
                 }
-
             } catch (Exception e) {
                 getLogger().warning("Failed to extract configuration files: " + e.getMessage());
             }
-
             boolean success = nativePluginManager(ACTION_ON_ENABLE,
                     getServer().getVersion(),
                     getDataFolder().getAbsolutePath(),
                     getServer().getMaxPlayers(),
                     getServer().getPort());
-
             if (!success) {
                 getLogger().severe("❌ CRITICAL: Validation FAILED (handled in Native layer)");
                 return;
             }
-
             // ✅ 仅在验证成功后再初始化语言、路径配置与文件监视
             LanguageManager.getInstance(this);
             Pathfinder.loadConfig(this);
@@ -260,12 +270,14 @@ public final class TOCpluginNative extends JavaPlugin implements Listener {
         }
     }
 
+    /**
+     * 插件禁用时的清理逻辑。
+     */
     @Override
     public void onDisable() {
         // 停止配置文件监视器
         stopConfigFileWatcher();
         TaskManager.cancelAllTasks();
-
         if (instance != null) {
             try {
                 nativePluginManager(ACTION_ON_DISABLE);
@@ -273,12 +285,10 @@ public final class TOCpluginNative extends JavaPlugin implements Listener {
                 getLogger().warning("Error during native cleanup: " + e.getMessage());
             }
         }
-
         try {
             WaypointService.getInstance();
         } catch (Exception ignore) {
         }
-
         instance = null;
         getLogger().info("PathFinder shutdown complete");
     }
@@ -944,3 +954,4 @@ public final class TOCpluginNative extends JavaPlugin implements Listener {
         return false;
     }
 }
+

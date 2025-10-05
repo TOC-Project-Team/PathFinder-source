@@ -17,7 +17,6 @@ import java.io.IOException;
  * 管理玩家位置隐私设置和导航功能
  */
 public class PlayerTracker {
-    private static PlayerTracker instance;
     private final Set<UUID> hiddenPlayers = new HashSet<>(); // 不暴露位置的玩家
     private final Set<UUID> navigatingPlayers = new HashSet<>(); // 正在导航的玩家
     private final java.util.Map<UUID, UUID> navigationTargets = new java.util.HashMap<>(); // 导航目标 <玩家UUID, 目标玩家UUID>
@@ -35,10 +34,11 @@ public class PlayerTracker {
     }
 
     public static PlayerTracker getInstance() {
-        if (instance == null) {
-            instance = new PlayerTracker();
-        }
-        return instance;
+        return Holder.INSTANCE;
+    }
+
+    private static class Holder {
+        private static final PlayerTracker INSTANCE = new PlayerTracker();
     }
 
     /**
@@ -564,3 +564,4 @@ public class PlayerTracker {
         return result;
     }
 }
+

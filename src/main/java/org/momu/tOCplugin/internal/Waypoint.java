@@ -3,6 +3,7 @@ package org.momu.tOCplugin.internal;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
+import org.momu.tOCplugin.util.KeyUtils;
 
 public class Waypoint {
     private final String key;
@@ -16,7 +17,7 @@ public class Waypoint {
 
     public Waypoint(String name, String world, double x, double y, double z) {
         this.name = name;
-        this.key = normalizeKey(name);
+        this.key = KeyUtils.normalizeKey(name);
         this.world = world;
         this.x = x;
         this.y = y;
@@ -24,11 +25,6 @@ public class Waypoint {
         long now = System.currentTimeMillis();
         this.createdAt = now;
         this.updatedAt = now;
-    }
-
-    public static String normalizeKey(String name) {
-        if (name == null) return "";
-        return name.trim().toLowerCase();
     }
 
     public String getKey() { return key; }
@@ -52,4 +48,4 @@ public class Waypoint {
     }
 
     private void touch() { this.updatedAt = System.currentTimeMillis(); }
-} 
+}

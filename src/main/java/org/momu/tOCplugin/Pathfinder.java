@@ -6,41 +6,11 @@ import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.metadata.MetadataValue;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.YamlConfiguration;
-import org.momu.tOCplugin.config.LanguageManager;
+import org.momu.tOCplugin.config.PathfinderConfig;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.util.*;
 
 public class Pathfinder {
-
-    // 从配置文件加载的参数
-    private static int MAX_SEARCH_RADIUS = 3000; // 搜索半径
-    public static double PARTICLE_SPACING = 0.5; // 粒子间距
-    public static int MAX_PARTICLE_DISTANCE = 30; // 显示粒子的最大距离
-    public static float PARTICLE_SIZE = 1.0f; // 粒子大小
-    public static int PATH_REFRESH_TICKS = 15; // 路径刷新频率（单位：tick，20tick=1秒）
-    private static double DIAGONAL_COST = 4.0; // 对角线移动的代价
-    private static double STRAIGHT_COST = 2.0; // 直线移动的代价
-    private static double RIGHT_ANGLE_TURN_COST = 1.5; // 直角转弯的额外代价
-    private static double DIAGONAL_TURN_COST = 0.5; // 斜角转弯的额外代价
-    private static double BREAK_BLOCK_COST = 100.0; // 破坏方块的代价
-    private static double WATER_COST = 10.0; // 水面行走的代价
-    private static double DOOR_COST = 0.0; // 经过门的代价
-    private static double TRAPDOOR_COST = 0.0; // 经过活板门的代价
-    private static double SCAFFOLDING_COST = 0.0; // 经过脚手架的代价
-    private static double JUMP_COST = 0.0; // 跳跃的代价
-    private static double VERTICAL_COST = 1.0; // 垂直移动的代价
-    private static double FALL_COST = 1.0; // 下落移动的代价
-    private static double BLOCK_JUMP_COST = 1.0; // 跨方块跳跃的代价
-    private static int MAX_BLOCK_JUMP_DISTANCE = 3; // 最大跨方块跳跃距离
-    private static int MAX_SAFE_FALL_HEIGHT = 3; // 最大安全下落高度
-    private static int MAX_ITERATIONS = 10000; // 最大迭代次数，增加以支持复杂水路寻路和大范围寻路
-    private static boolean ENABLE_PATH_CACHING = false; // 是否启用路径缓存/平滑机制
 
     /**
      * 从配置文件加载寻路参数
@@ -48,91 +18,7 @@ public class Pathfinder {
      * @param plugin 插件实例
      */
     public static void loadConfig(TOCpluginNative plugin) {
-        File pathfinderFile = new File(plugin.getDataFolder(), "pathfinder.yml");
-        if (!pathfinderFile.exists()) {
-            plugin.saveResource("pathfinder.yml", false);
-        }
-
-        // 加载当前配置文件
-        FileConfiguration config = YamlConfiguration.loadConfiguration(pathfinderFile);
-
-        // 加载默认配置文件，用于检查是否有新的配置项
-        InputStream defaultConfigStream = plugin.getResource("pathfinder.yml");
-        if (defaultConfigStream != null) {
-            try {
-                // 加载默认配置
-                YamlConfiguration defaultConfig = YamlConfiguration
-                        .loadConfiguration(new InputStreamReader(defaultConfigStream));
-                boolean configUpdated = false;
-
-                // 遍历默认配置中的所有键
-                for (String key : defaultConfig.getKeys(true)) {
-                    if (!config.contains(key)) {
-                        // 如果当前配置中没有这个键，就添加它
-                        config.set(key, defaultConfig.get(key));
-                        configUpdated = true;
-                        plugin.getLogger()
-                                .info(LanguageManager.getInstance().getString("messages.added-new-config-item", key));
-                    }
-                }
-
-                // 如果配置有更新，保存更新后的配置
-                if (configUpdated) {
-                    config.save(pathfinderFile);
-                    plugin.getLogger()
-                            .info(LanguageManager.getInstance().getString("messages.pathfinder-config-updated"));
-                }
-            } catch (Exception e) {
-                plugin.getLogger().warning(LanguageManager.getInstance()
-                        .getString("messages.pathfinder-config-update-error", e.getMessage()));
-            } finally {
-                try {
-                    defaultConfigStream.close();
-                } catch (IOException e) {
-                    plugin.getLogger().warning(LanguageManager.getInstance()
-                            .getString("messages.pathfinder-config-close-error", e.getMessage()));
-                }
-            }
-        }
-
-        // 加载所有参数
-        MAX_SEARCH_RADIUS = config.getInt("max_search_radius", 3000);
-        PARTICLE_SPACING = config.getDouble("particle_spacing", 0.5);
-        MAX_PARTICLE_DISTANCE = config.getInt("max_particle_distance", 30);
-        PARTICLE_SIZE = (float) config.getDouble("particle_size", 1.0);
-        PATH_REFRESH_TICKS = config.getInt("path_refresh_ticks", 15);
-        DIAGONAL_COST = config.getDouble("diagonal_cost", 3.0);
-        STRAIGHT_COST = config.getDouble("straight_cost", 1.0);
-        RIGHT_ANGLE_TURN_COST = config.getDouble("right_angle_turn_cost", 0.5);
-        DIAGONAL_TURN_COST = config.getDouble("diagonal_turn_cost", 0.3);
-        BREAK_BLOCK_COST = config.getDouble("break_block_cost", 100.0);
-        WATER_COST = config.getDouble("water_cost", 10.0);
-        DOOR_COST = config.getDouble("door_cost", 0.0);
-        TRAPDOOR_COST = config.getDouble("trapdoor_cost", 0.0);
-        SCAFFOLDING_COST = config.getDouble("scaffolding_cost", 0.0);
-        JUMP_COST = config.getDouble("jump_cost", 0.0);
-        VERTICAL_COST = config.getDouble("vertical_cost", 1.0);
-        FALL_COST = config.getDouble("fall_cost", 1.0);
-        BLOCK_JUMP_COST = config.getDouble("block_jump_cost", 1.0);
-        MAX_BLOCK_JUMP_DISTANCE = config.getInt("max_block_jump_distance", 3);
-        MAX_SAFE_FALL_HEIGHT = config.getInt("max_safe_fall_height", 3);
-        MAX_ITERATIONS = config.getInt("max_iterations", 10000);
-        ENABLE_PATH_CACHING = config.getBoolean("enable_path_caching", true);
-
-        // 清理所有缓存，确保配置更改立即生效
-        STRING_CONTAINS_CACHE.clear();
-        LOCATION_KEY_CACHE.clear();
-        SAFE_LOCATION_CACHE.clear();
-        DOOR_CACHE.clear();
-        TRAPDOOR_CACHE.clear();
-        BANNER_CACHE.clear(); // 清理旗帜缓存，确保新的检测逻辑生效
-        LADDER_CACHE.clear();
-        SCAFFOLDING_CACHE.clear();
-        PASSABLE_CACHE.clear();
-        SOLID_CACHE.clear();
-
-        plugin.getLogger()
-                .info(LanguageManager.getInstance().getString("messages.pathfinder-config-loaded-and-cached"));
+        PathfinderConfig.loadConfig(plugin);
     }
 
     public static void clearBannerCache() {
@@ -146,7 +32,7 @@ public class Pathfinder {
      * @return 是否启用路径缓存/平滑机制
      */
     public static boolean isPathCachingEnabled() {
-        return ENABLE_PATH_CACHING;
+        return PathfinderConfig.ENABLE_PATH_CACHING;
     }
 
     /**
@@ -155,7 +41,7 @@ public class Pathfinder {
      * @return 最大搜索半径
      */
     public static int getMaxSearchRadius() {
-        return MAX_SEARCH_RADIUS;
+        return PathfinderConfig.MAX_SEARCH_RADIUS;
     }
 
     // 全局缓存，减少重复计算和对象创建
@@ -189,58 +75,36 @@ public class Pathfinder {
     public static final int MOVE_BLOCK_JUMP = 5; // 跨方块跳跃
 
     /**
-     * 检测玩家是否处于悬空状态
-     * 
+     * 检测玩家是否处于悬空状态。
+     * 仅当玩家脚下多格都无支撑且未处于跳跃状态时，才认为悬空。
      * @param player 要检测的玩家
      * @return 如果玩家悬空返回true，否则返回false
      */
     public static boolean isPlayerInAir(Player player) {
-        if (player == null)
-            return false;
-
-        // 获取玩家脚下的方块
+        if (player == null) return false;
         Location playerLoc = player.getLocation();
-
-        // 检查玩家是否在跳跃
-        // 玩家跳跃时垂直速度为正，但我们需要考虑到玩家可能正在下落
-        // 使用更精确的判断：只有当玩家脚下没有方块且垂直速度为0或负值时才认为悬空
         double verticalVelocity = player.getVelocity().getY();
-
-        // 如果玩家正在上升（跳跃中），不认为是悬空
-        if (verticalVelocity > 0.05) {
-            return false;
-        }
-
-        // 检查玩家脚下一格是否有实体方块或水
-        Block blockBelow = playerLoc.getBlock().getRelative(0, -1, 0);
-        if (blockBelow.getType().isSolid() ||
-                blockBelow.getType().name().contains("WATER") ||
-                isLadder(blockBelow) ||
-                isScaffolding(blockBelow) ||
-                isDoorPassable(blockBelow)) {
-            // 旗帜不提供支撑，被视为空气方块
-            return false;
-        }
-
-        // 如果玩家脚下没有方块且不是在跳跃，检查更远的距离
-        // 只有当脚下3格内都没有方块时才认为真正悬空
+        if (verticalVelocity > 0.05) return false; // 跳跃中不算悬空
+        if (isBlockSupportive(playerLoc.getBlock().getRelative(0, -1, 0))) return false;
         for (int i = 2; i <= 10; i++) {
-            blockBelow = playerLoc.getBlock().getRelative(0, -i, 0);
-            if (blockBelow.getType().isSolid() ||
-                    blockBelow.getType().name().contains("WATER") ||
-                    isLadder(blockBelow) ||
-                    isScaffolding(blockBelow) ||
-                    isDoorPassable(blockBelow)) {
-                    // 旗帜不提供支撑，被视为空气方块
-                // 如果在2-3格范围内有方块，且玩家不是在跳跃，则认为是在下落但不是真正悬空
-                if (verticalVelocity >= -5.5) { // 轻微下落不算悬空
-                    return false;
-                }
+            Block blockBelow = playerLoc.getBlock().getRelative(0, -i, 0);
+            if (isBlockSupportive(blockBelow)) {
+                if (verticalVelocity >= -5.5) return false;
             }
         }
-
-        // 如果脚下3格内都没有方块，或者正在快速下落，则认为悬空
         return true;
+    }
+    /**
+     * 判断一个方块是否能为玩家提供支撑。
+     * @param block 检查的方块
+     * @return 能支撑返回true，否则false
+     */
+    private static boolean isBlockSupportive(Block block) {
+        return block.getType().isSolid() ||
+               block.getType().name().contains("WATER") ||
+               isLadder(block) ||
+               isScaffolding(block) ||
+               isDoorPassable(block);
     }
 
     // 安全地设置破坏标记，确保只有固体且可破坏的方块才被标记
@@ -322,10 +186,10 @@ public class Pathfinder {
         int iterations = 0;
         double targetDistance = 1.0; // 目标距离阈值，更精确的判断
         // 预先计算搜索半径的平方，避免开方操作
-        double maxSearchRadiusSq = MAX_SEARCH_RADIUS * MAX_SEARCH_RADIUS;
+        double maxSearchRadiusSq = PathfinderConfig.MAX_SEARCH_RADIUS * PathfinderConfig.MAX_SEARCH_RADIUS;
         double earlyExitDistanceSq = 1.0; // 提前退出距离阈值
 
-        while (!openSet.isEmpty() && iterations < MAX_ITERATIONS) {
+        while (!openSet.isEmpty() && iterations < PathfinderConfig.MAX_ITERATIONS) {
             iterations++;
             Node current = openSet.poll();
             String currentKey = locationKey(current.location);
@@ -381,7 +245,7 @@ public class Pathfinder {
                 int minYOffset = -1;
                 // 严格限制柱子下落的触发条件：只有纯垂直下落才允许更大的下落高度
                 if (dx[i] == 0 && dz[i] == 0) {
-                    minYOffset = -MAX_SAFE_FALL_HEIGHT;
+                    minYOffset = -PathfinderConfig.MAX_SAFE_FALL_HEIGHT;
                 } else if (Math.abs(dx[i]) <= 1 && Math.abs(dz[i]) <= 1) {
                     // 对于小范围移动，只允许2格下落
                     minYOffset = -2;
@@ -509,14 +373,14 @@ public class Pathfinder {
                         // 检查目标位置是否在水中或水面上
                         boolean targetInWater = isInWater(nextLocation);
                         // 禁止直接从高处落入水中
-                        if (fallHeight > MAX_SAFE_FALL_HEIGHT && targetInWater) {
+                        if (fallHeight > PathfinderConfig.MAX_SAFE_FALL_HEIGHT && targetInWater) {
                             continue; // 不允许从高处直接落入水中
                         }
 
-                        if (fallHeight > MAX_SAFE_FALL_HEIGHT) {
+                        if (fallHeight > PathfinderConfig.MAX_SAFE_FALL_HEIGHT) {
                             // 如果是直接从高处下落或小范围移动下落，检查是否可以通过破坏下方块来创建安全路径
                             if (Math.abs(dx[i]) <= 1 && Math.abs(dz[i]) <= 1) { // 直线或小范围下降
-                                int blocksToBreak = fallHeight - MAX_SAFE_FALL_HEIGHT;
+                                int blocksToBreak = fallHeight - PathfinderConfig.MAX_SAFE_FALL_HEIGHT;
                                 boolean canBreak = true;
                                 for (int j = 1; j <= blocksToBreak; j++) {
                                     Block blockBelow = current.location.getBlock().getRelative(0, -j, 0);
@@ -744,7 +608,7 @@ public class Pathfinder {
                     }
 
                     boolean diagonal = (dx[i] != 0 && dz[i] != 0);
-                    double moveCost = diagonal ? DIAGONAL_COST : STRAIGHT_COST; // 使用定义的常量
+                    double moveCost = diagonal ? PathfinderConfig.DIAGONAL_COST : PathfinderConfig.STRAIGHT_COST; // 使用定义的常量
 
                     // 计算转弯代价
                     if (current.parent != null) {
@@ -768,11 +632,11 @@ public class Pathfinder {
 
                                 // 直角转弯 (cos(90°) = 0)
                                 if (Math.abs(cosAngle) < 0.01) {
-                                    moveCost += RIGHT_ANGLE_TURN_COST;
+                                    moveCost += PathfinderConfig.RIGHT_ANGLE_TURN_COST;
                                 }
                                 // 斜角转弯 (cos(45°) ≈ 0.7071, cos(135°) ≈ -0.7071)
                                 else if (Math.abs(cosAngle - 0.7071) < 0.1 || Math.abs(cosAngle + 0.7071) < 0.1) {
-                                    moveCost += DIAGONAL_TURN_COST;
+                                    moveCost += PathfinderConfig.DIAGONAL_TURN_COST;
                                 }
                             }
                         }
@@ -805,7 +669,7 @@ public class Pathfinder {
                         Block nextBlock = nextLocation.getBlock();
                         Block groundBlock = nextLocation.clone().add(0, -1, 0).getBlock();
 
-                        // 检查是否是水面上的海带方块，这些视为可通过
+                        // 检查是否是水面上的海带，这些视为可通过
                         boolean isKelpOnWater = containsWithCache(nextBlock.getType().name(), "KELP") &&
                                 containsWithCache(groundBlock.getType().name(), "WATER");
 
@@ -823,7 +687,7 @@ public class Pathfinder {
                     // 计算移动代价
                     // 添加破坏方块的代价
                     if (toBreak) {
-                        moveCost += BREAK_BLOCK_COST;
+                        moveCost += PathfinderConfig.BREAK_BLOCK_COST;
                     }
 
                     // 检查水面行走
@@ -831,18 +695,18 @@ public class Pathfinder {
                     boolean nextOnWaterSurface = isOnWaterSurface(nextLocation);
                     
                     if (nextInsideWater) {
-                        moveCost += WATER_COST * 5.0;
+                        moveCost += PathfinderConfig.WATER_COST * 5.0;
                     }
 
                     // 水面行走增加额外代价
                     if (nextOnWaterSurface) {
-                        moveCost += WATER_COST; // 增加水面行走的代价
+                        moveCost += PathfinderConfig.WATER_COST; // 增加水面行走的代价
                     }
 
                     // 添加经过门和旗帜的代价
                     if (isDoorPassable(nextLocation.getBlock()) || isBannerPassable(nextLocation.getBlock())
                             || isFenceGate(nextLocation.getBlock())) {
-                        moveCost += DOOR_COST;
+                        moveCost += PathfinderConfig.DOOR_COST;
                     }
 
                     // 检查是否需要跳跃栅栏，只有在栅栏上有地毯且地毯上方没有方块时才允许通过
@@ -870,33 +734,33 @@ public class Pathfinder {
 
                     // 添加经过活板门的代价（脚部和头部位置）
                     if (isTrapdoor(nextLocation.getBlock())) {
-                        moveCost += TRAPDOOR_COST;
+                        moveCost += PathfinderConfig.TRAPDOOR_COST;
                     }
                     if (isTrapdoor(nextLocation.getBlock().getRelative(0, 1, 0))) {
-                        moveCost += TRAPDOOR_COST;
+                        moveCost += PathfinderConfig.TRAPDOOR_COST;
                     }
 
                     // 添加经过脚手架的代价
                     if (isScaffolding(nextLocation.getBlock())) {
-                        moveCost += SCAFFOLDING_COST;
+                        moveCost += PathfinderConfig.SCAFFOLDING_COST;
                     }
 
                     // 添加跳跃的代价
                     if (moveType == MOVE_JUMP) {
-                        moveCost += JUMP_COST;
+                        moveCost += PathfinderConfig.JUMP_COST;
                     }
 
                     // 添加跨方块跳跃的代价
                     if (moveType == MOVE_BLOCK_JUMP) {
-                        moveCost += BLOCK_JUMP_COST;
+                        moveCost += PathfinderConfig.BLOCK_JUMP_COST;
                     }
 
                     // 添加垂直移动的代价
                     if (moveType == MOVE_UP) {
-                        moveCost += VERTICAL_COST;
+                        moveCost += PathfinderConfig.VERTICAL_COST;
                     } else if (moveType == MOVE_DOWN || moveType == MOVE_FALL) {
                         // 下落的代价更低，鼓励算法选择下落路径
-                        moveCost += FALL_COST;
+                        moveCost += PathfinderConfig.FALL_COST;
 
                         // 根据下落高度增加少量代价，但仍然比绕路更优
                         int fallHeight = current.location.getBlockY() - nextLocation.getBlockY();
@@ -948,13 +812,13 @@ public class Pathfinder {
                 // 但是楼梯半砖除外，因为楼梯应该允许跨方块跳跃
                 Block currentFeetBlock = current.location.getBlock();
                 Block currentGroundBlock = current.location.clone().add(0, -1, 0).getBlock();
-                boolean onScaffoldingForBlockJump = isScaffolding(currentFeetBlock) || isScaffolding(currentGroundBlock);
+                boolean onScaffoldingForBlockJump = isScaffolding(currentGroundBlock) || isScaffolding(currentFeetBlock);
                 if ((isLowBlockButNotStair(currentFeetBlock) || isLowBlockButNotStair(currentGroundBlock)) && !onScaffoldingForBlockJump) {
                     continue; // 不能从低矮方块进行跨方块跳跃（楼梯半砖或脚手架除外）
                 }
 
                 // 尝试不同距离的跨方块跳跃，只有距离大于等于2才考虑跨方块跳跃
-                for (int distance = 2; distance <= MAX_BLOCK_JUMP_DISTANCE; distance++) {
+                for (int distance = 2; distance <= PathfinderConfig.MAX_BLOCK_JUMP_DISTANCE; distance++) {
                     Location jumpTarget = current.location.clone().add(jumpDirX * distance, 0, jumpDirZ * distance);
                     String jumpKey = locationKey(jumpTarget);
 
@@ -1110,7 +974,7 @@ public class Pathfinder {
                     }
 
                     // 计算跨方块跳跃的代价
-                    double jumpCost = BLOCK_JUMP_COST * distance * distance; // 使用距离的平方，使长距离跳跃代价更高
+                    double jumpCost = PathfinderConfig.BLOCK_JUMP_COST * distance * distance; // 使用距离的平方，使长距离跳跃代价更高
                     double nextG = current.g + jumpCost;
                     double nextH = heuristic(jumpTarget, endLoc);
 
@@ -1307,17 +1171,17 @@ public class Pathfinder {
         // 修复水路寻路问题：减少水体内部的启发式惩罚，避免当水路是唯一路径时无法找到路径
         if (insideWater) {
             // 降低水体内部的启发式惩罚，使用较小的代价增量而不是极高代价
-            baseHeuristic += WATER_COST * 2.0; // 使用适中的代价估计，而不是极高的BREAK_BLOCK_COST * 10.0
+            baseHeuristic += PathfinderConfig.WATER_COST * 2.0; // 使用适中的代价估计，而不是极高的BREAK_BLOCK_COST * 10.0
         }
 
         // 如果目标在水体内部，也使用适中的代价增量
         if (targetInsideWater) {
-            baseHeuristic += WATER_COST * 2.0; // 使用适中的代价估计
+            baseHeuristic += PathfinderConfig.WATER_COST * 2.0; // 使用适中的代价估计
         }
 
         // 如果起点在水面上，增加水面行走的代价估计
         if (onWaterSurface) {
-            baseHeuristic += WATER_COST; // 增加水面行走的代价估计，使用完整的代价值
+            baseHeuristic += PathfinderConfig.WATER_COST; // 增加水面行走的代价估计，使用完整的代价值
         }
 
         // 添加微小的确定性扰动，基于位置坐标，避免相同代价路径的随机选择

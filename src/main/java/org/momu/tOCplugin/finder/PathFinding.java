@@ -10,6 +10,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 import org.momu.tOCplugin.Pathfinder;
+import org.momu.tOCplugin.config.PathfinderConfig;
 import org.momu.tOCplugin.manager.PlayerTracker;
 import org.momu.tOCplugin.TOCpluginNative;
 import org.momu.tOCplugin.manager.TaskManager;
@@ -554,7 +555,7 @@ public class PathFinding {
 
                                 if (finalPath != null && !finalPath.isEmpty()) {
                                     int maxDrawNodes = Math.min((int) finalPath.size(),
-                                            (int) Pathfinder.MAX_PARTICLE_DISTANCE);
+                                            (int) PathfinderConfig.MAX_PARTICLE_DISTANCE);
                                     for (int i = 0; i < maxDrawNodes - 1; ++i) {
                                         Pathfinder.Node currentNode = (Pathfinder.Node) finalPath.get(i);
                                         Pathfinder.Node nextNode = (Pathfinder.Node) finalPath.get(i + 1);
@@ -604,7 +605,7 @@ public class PathFinding {
                                         double distance = start.distance(end);
                                         Particle particleType = Particle.DUST;
                                         Color particleColor = Color.WHITE;
-                                        float particleSize = Pathfinder.PARTICLE_SIZE;
+                                        float particleSize = PathfinderConfig.PARTICLE_SIZE;
                                         switch (currentNode.moveType) {
                                             case 3: {
                                                 particleColor = Color.YELLOW;
@@ -691,7 +692,7 @@ public class PathFinding {
                                                 // 这里故意留空，让旗帜路径完全透明
                                             }
                                         }
-                                        if (!(distance > Pathfinder.PARTICLE_SPACING)) {
+                                        if (!(distance > PathfinderConfig.PARTICLE_SPACING)) {
                                             // 短距离段：直接在终点生成一个加粗粒子
                                             player.spawnParticle(particleType, end, 1, 0.0, 0.0, 0.0, 0.0,
                                                     (Object) new Particle.DustOptions(particleColor,
@@ -704,7 +705,7 @@ public class PathFinding {
                                             // 普通移动使用直线粒子效果
                                             double totalDistance = start.distance(end);
                                             int steps = Math.max(
-                                                    (int) Math.ceil(totalDistance / Pathfinder.PARTICLE_SPACING), 1);
+                                                    (int) Math.ceil(totalDistance / PathfinderConfig.PARTICLE_SPACING), 1);
 
                                             // 先在起点生成一个粒子，确保起点被标记
                                             player.spawnParticle(particleType, start, 1, 0.0, 0.0, 0.0, 0.0,
@@ -758,7 +759,7 @@ public class PathFinding {
                             }
                         }.runTask((Plugin) TOCpluginNative.getInstance());
                     }
-                }.runTaskTimerAsynchronously((Plugin) TOCpluginNative.getInstance(), 0L, Pathfinder.PATH_REFRESH_TICKS);
+                }.runTaskTimerAsynchronously((Plugin) TOCpluginNative.getInstance(), 0L, PathfinderConfig.PATH_REFRESH_TICKS);
                 if (TOCpluginNative.getInstance().isEnabled()) {
                     MasterListener.getGuiManager().addParticleTask(player.getUniqueId(), pathfindingTask);
                     // 将任务添加到导航任务管理器中
@@ -1315,13 +1316,13 @@ public class PathFinding {
         double horizontalDistance = Math
                 .sqrt(Math.pow(jumpEnd.getX() - jumpStart.getX(), 2) + Math.pow(jumpEnd.getZ() - jumpStart.getZ(), 2));
         double verticalDistance = jumpEnd.getY() - jumpStart.getY();
-        int steps = Math.max((int) Math.ceil(horizontalDistance / (Pathfinder.PARTICLE_SPACING * 0.2)), 15);
+        int steps = Math.max((int) Math.ceil(horizontalDistance / (PathfinderConfig.PARTICLE_SPACING * 0.2)), 15);
 
         double maxHeight = 0.5;
 
         Particle particleType = Particle.DUST;
         Color particleColor = Color.AQUA;
-        float particleSize = Pathfinder.PARTICLE_SIZE;
+        float particleSize = PathfinderConfig.PARTICLE_SIZE;
 
         // 生成抛物线
         for (int step = 0; step <= steps; ++step) {
