@@ -16,10 +16,8 @@ import org.momu.tOCplugin.TOCpluginNative;
 import org.momu.tOCplugin.manager.TaskManager;
 import org.momu.tOCplugin.config.LanguageManager;
 import org.momu.tOCplugin.listener.MasterListener;
-
 import java.util.*;
 import java.util.function.Consumer;
-
 import static org.momu.tOCplugin.manager.TaskManager.arrivalNotifyCooldownUntil;
 
 public class PathFinding {
