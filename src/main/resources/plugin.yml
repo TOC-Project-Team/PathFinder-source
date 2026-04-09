@@ -1,0 +1,53 @@
+name: PathFinder
+version: '1.6.0'
+main: org.momu.pathfinder.bootstrap.PathFinderPlugin
+api-version: '1.21'
+folia-supported: true
+author: momu
+description: Path guidance plugin powered entirely by Java
+permissions:
+  toc.admin:
+    default: op
+  toc.cd:
+    default: true
+  toc.lang:
+    default: true
+  toc.nav.*:
+    default: op
+    children:
+      toc.nav.add: true
+      toc.nav.remove: true
+      toc.nav.rename: true
+      toc.nav.set: true
+      toc.nav.start: true
+      toc.nav.go: true
+      toc.nav.stop: true
+      toc.nav.list: true
+      toc.nav.stop.other: true
+
+  toc.nav.add:
+    default: false
+  toc.nav.remove:
+    default: false
+  toc.nav.rename:
+    default: false
+  toc.nav.set:
+    default: false
+  toc.nav.start:
+    default: false
+  toc.nav.stop.other:
+    default: false
+
+  toc.nav.go:
+    default: true
+  toc.nav.stop:
+    default: true
+  toc.nav.list:
+    default: true
+
+  toc.view:
+    default: op
+commands:
+  toc:
+    description: player path guidance
+    usage: "/toc <reload|cd|status|lang|admin>"

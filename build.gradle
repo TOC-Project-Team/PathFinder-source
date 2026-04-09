@@ -1,0 +1,64 @@
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
+    id 'xyz.jpenilla.run-paper' version '2.3.1'
+}
+
+buildDir = file('.gradle-build')
+
+group = 'org.momu.tocplugin'
+version = '1.6.0'
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'papermc-repo'
+        url = 'https://repo.papermc.io/repository/maven-public/'
+    }
+    maven {
+        name = 'sonatype'
+        url = 'https://oss.sonatype.org/content/groups/public/'
+    }
+}
+
+dependencies {
+    compileOnly('io.papermc.paper:paper-api:1.21.6-R0.1-SNAPSHOT')
+    implementation('com.google.code.gson:gson:2.11.0')
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(21)
+}
+
+processResources {
+    def props = [version: version]
+    inputs.properties props
+    filteringCharset = 'UTF-8'
+    filesMatching('plugin.yml') {
+        expand props
+    }
+}
+
+shadowJar {
+    configurations = [project.configurations.runtimeClasspath]
+}
+
+tasks.assemble.dependsOn(tasks.shadowJar)
+tasks.build.dependsOn(tasks.shadowJar)
+
+tasks.register('buildAll') {
+    group = 'build'
+    description = 'Build the PathFinder fat jar'
+    dependsOn(tasks.shadowJar)
+}
+
+tasks.register('buildDev') {
+    group = 'build'
+    description = 'Build the PathFinder fat jar for fast development iterations'
+    dependsOn(tasks.shadowJar)
+}
